@@ -156,20 +156,11 @@ ExponentialFilter efRssi = ExponentialFilter(FACTOR_RSSI);
 ExponentialFilter efTemp = ExponentialFilter(FACTOR_TEMP);
 SmoothSensorData smooth;
 
-// Temperature trigger values
-const float TEMP_VALUE_FREEZE  =  5.0;
-const float TEMP_VALUE_COLD    = 20.0;
-const float TEMP_VALUE_NORMAL  = 24.0;
-const float TEMP_VALUE_WARM    = 28.0;
+// Temperature processing parameters
 const float TEMP_VALUE_MARGIN  =  0.5;    // Temperature hysteresis in centigrades
 const float TEMP_TREND_MARGIN  =  0.01;   // Trend hysteresis in centigrades per minute
-
-// Temperature statuses
-const unsigned char TEMP_STATUS_FREEZE = 1;
-const unsigned char TEMP_STATUS_COLD   = 2;
-const unsigned char TEMP_STATUS_NORMAL = 3;
-const unsigned char TEMP_STATUS_WARM   = 4;
-const unsigned char TEMP_STATUS_HOT    = 5;
+const float TEMP_BUCKET[] = {0.0, 5.0, 20.0, 24.0, 28.0};
+const char* TEMP_STATUS[] = {"unknown", "Freeze", "Cold", "Normal", "Warm", "Hot"};
 
 void setup()
 {
@@ -243,25 +234,10 @@ void measureTemp()
         while(smooth.registerData(analogRead(PIN_LM35)));
         tempValue = efTemp.getValue(COEF_LM35 * smooth.getMidAverage());
         // Status
-        if (tempValue <= TEMP_VALUE_FREEZE)
+        tempStatus = 0;
+        for (unsigned char i = 0; i < sizeof(TEMP_BUCKET)/sizeof(TEMP_BUCKET[0]); i++)
         {
-            tempStatus = TEMP_STATUS_FREEZE;
-        }
-        else if (tempValue <= TEMP_VALUE_COLD)
-        {
-            tempStatus = TEMP_STATUS_COLD;
-        }
-        else if (tempValue <= TEMP_VALUE_NORMAL)
-        {
-            tempStatus = TEMP_STATUS_NORMAL;
-        }
-        else if (tempValue <= TEMP_VALUE_WARM)
-        {
-            tempStatus = TEMP_STATUS_WARM;
-        }
-        else
-        {
-            tempStatus = TEMP_STATUS_HOT;
+            if (tempValue >= TEMP_BUCKET[i]) tempStatus = i + 1;
         }
         // Trend and statistics
         if (tsMeasureOld == 0)
@@ -361,7 +337,7 @@ unsigned char publishParticleInits(unsigned char sentBatchMsgs)
 
 unsigned char publishParticleValues(unsigned char sentBatchMsgs)
 {
-    static unsigned char events[2];
+    static unsigned char events[3];
     unsigned char batchMsgs = sentBatchMsgs; // Messages sent in the current burst
     unsigned char sentMsgs = 0;              // Messages sent totally so far
     boolean publishSuccess = false;
@@ -381,6 +357,10 @@ unsigned char publishParticleValues(unsigned char sentBatchMsgs)
 
             case 1:
                 publishSuccess = Particle.publish("Temperature/Trend", String::format("%4.1f/%4.3f", tempValue, tempTrend));
+                break;
+
+            case 2:
+                publishSuccess = Particle.publish("Status", String(TEMP_STATUS[tempStatus]));
                 break;
         }
         if (publishSuccess)
@@ -465,26 +445,7 @@ void publishBlynk()
 #ifdef BLYNK_NOTIFY_TEMP
         if (tempStatus != tempStatusOld && fabs(tempValue - tempValueOld) > TEMP_VALUE_MARGIN)
         {
-            String txtStatus;
-            switch (tempStatus)
-            {
-                case TEMP_STATUS_FREEZE:
-                    txtStatus = String("Freeze");
-                    break;
-                case TEMP_STATUS_COLD:
-                    txtStatus = String("Cold");
-                    break;
-                case TEMP_STATUS_NORMAL:
-                    txtStatus = String("Normal");
-                    break;
-                case TEMP_STATUS_WARM:
-                    txtStatus = String("Warm");
-                    break;
-                case TEMP_STATUS_HOT:
-                    txtStatus = String("Hot");
-                    break;
-            }
-            Blynk.notify(BLYNK_LABEL_PREFIX + BLYNK_LABEL_GLUE + BLYNK_LABEL_TEMP + BLYNK_LABEL_GLUE + txtStatus);
+            Blynk.notify(BLYNK_LABEL_PREFIX + BLYNK_LABEL_GLUE + BLYNK_LABEL_TEMP + BLYNK_LABEL_GLUE + TEMP_STATUS[tempStatus]);
             tempStatusOld = tempStatus;
         }
 #endif
