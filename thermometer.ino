@@ -41,9 +41,9 @@
 #define PHOTON_PUBLISH_DEBUG        // Uncomment to publish debug events to Particle
 #define PHOTON_PUBLISH_VALUE        // Uncomment to publish regular events to Particle
 
-#define THINGSPEAK_CLOUD            // Comment to totally ignore ThingSpeak Cloud
+// #define THINGSPEAK_CLOUD            // Comment to totally ignore ThingSpeak Cloud
 
-#define BLYNK_CLOUD                 // Comment to totally ignore Blynk Cloud
+// #define BLYNK_CLOUD                 // Comment to totally ignore Blynk Cloud
 #define BLYNK_NOTIFY_TEMP           // Uncomment to send Blynk push notifications
 #define BLYNK_SIGNAL_TEMP           // Uncomment to use Blynk LED signalling
 
@@ -65,12 +65,13 @@
 // STARTUP(WiFi.selectAntenna(ANT_EXTERNAL));
 STARTUP(WiFi.selectAntenna(ANT_INTERNAL));
 STARTUP(System.enableFeature(FEATURE_RETAINED_MEMORY));
-SYSTEM_THREAD(ENABLED);
-SYSTEM_MODE(AUTOMATIC);
+// SYSTEM_THREAD(ENABLED);
+// SYSTEM_MODE(AUTOMATIC);
+
 //-------------------------------------------------------------------------
 // Temperature sensing and publishing to Particle, ThinkSpeak, and Blynk
 //-------------------------------------------------------------------------
-#define SKETCH "THERMOMETER 1.0.0"
+#define SKETCH "THERMOMETER 2.0.0"
 #include "credentials.h"
 
 const unsigned int TIMEOUT_WATCHDOG = 10000;    // Watchdog timeout in milliseconds
@@ -90,6 +91,7 @@ const unsigned int COUNT_TREND_TEMP = 15;       // Number of measurements to cal
 //-------------------------------------------------------------------------
 #ifdef PARTICLE_CLOUD
 const unsigned int PERIOD_PUBLISH_PARTICLE = 15000;
+const unsigned char PARTICLE_BATCH_LIMIT = 4;
 #endif
 
 //-------------------------------------------------------------------------
@@ -293,24 +295,115 @@ void publishParticle()
     if (millis() - tsPublish >= PERIOD_PUBLISH_PARTICLE)
     {
         tsPublish = millis();
-        // Publish boot events
-        if (stateAfterBoot)
-        {
-            bool sent;
-            sent = Particle.publish("Boot_Cnt_Run", String::format("%d/%d/%s", bootCount, bootRunPeriod, bootFwVersion));
-#ifdef PHOTON_PUBLISH_DEBUG
-            if (sent)
-            {
-                sent = Particle.publish("Sketch", String(SKETCH));
-            }
-#endif
-            if (sent) stateAfterBoot = false;
-        }
-        // Publish values
-        Particle.publish("RSSI", String::format("%3d", rssiValue));
-        Particle.publish("Temperature/Trend", String::format("%4.1f/%4.3f", tempValue, tempTrend));
+        unsigned char batchMsgs = 0;
+        batchMsgs = publishParticleInits(batchMsgs);     // Publish boot events
+        batchMsgs = publishParticleValues(batchMsgs);    // Publish value events
     }
 }
+
+unsigned char publishParticleInits(unsigned char sentBatchMsgs)
+{
+    static unsigned char events[5];
+    unsigned char batchMsgs = sentBatchMsgs;    // Messages sent in the current burst
+    if (stateAfterBoot)
+    {
+        boolean publishSuccess = false;
+        unsigned char sentMsgs = 0;     // Messages sent totally so far
+        for (unsigned char i = 0; i < sizeof(events)/sizeof(events[0]); i++)
+        {
+            if (batchMsgs >= PARTICLE_BATCH_LIMIT) break;
+            if (events[i])
+            {
+                sentMsgs++;
+                continue;      // No processing with already sent messages
+            }
+            
+            switch(i)
+            {
+                case 0:
+                    publishSuccess = Particle.publish("Boot_Cnt_Run", String::format("%d/%d/%s", bootCount, bootRunPeriod, bootFwVersion));
+                    break;
+
+                case 1:
+                    publishSuccess = Particle.publish("Sketch", String(SKETCH));
+                    break;
+
+                case 2:
+                    publishSuccess = Particle.publish("Library", String(WATCHDOGS_VERSION));
+                    break;
+
+                case 3:
+                    publishSuccess = Particle.publish("Library", String(EXPONENTIALFILTER_VERSION));
+                    break;
+
+                case 4:
+                    publishSuccess = Particle.publish("Library", String(SMOOTHSENSORDATA_VERSION));
+                    break;                    
+            }
+            if (publishSuccess)
+            {
+                events[i] = true;
+                batchMsgs++;
+                sentMsgs++;
+                if (sentMsgs >= sizeof(events)/sizeof(events[0]))
+                {
+                    stateAfterBoot = false; // All initial messages have been sent
+                }
+            }
+            else
+            {
+                break;          // Break publishing due to cloud disconnection
+            }            
+        }
+    }
+    return batchMsgs;
+}
+
+unsigned char publishParticleValues(unsigned char sentBatchMsgs)
+{
+    static unsigned char events[2];
+    unsigned char batchMsgs = sentBatchMsgs; // Messages sent in the current burst
+    unsigned char sentMsgs = 0;              // Messages sent totally so far
+    boolean publishSuccess = false;
+    for (unsigned char i = 0; i < sizeof(events)/sizeof(events[0]); i++)
+    {
+        if (batchMsgs >= PARTICLE_BATCH_LIMIT) break;
+        if (events[i])
+        {
+            sentMsgs++;
+            continue;      // No processing with already sent messages
+        }
+        switch(i)
+        {
+            case 0:
+                publishSuccess = Particle.publish("RSSI", String::format("%3d", rssiValue));
+                break;
+
+            case 1:
+                publishSuccess = Particle.publish("Temperature/Trend", String::format("%4.1f/%4.3f", tempValue, tempTrend));
+                break;
+        }
+        if (publishSuccess)
+        {
+            events[i] = true;
+            batchMsgs++;
+            sentMsgs++;
+        }
+        else
+        {
+            break;          // Break publishing due to cloud disconnection
+        }            
+    }
+    if (sentMsgs >= sizeof(events)/sizeof(events[0]))
+    {
+        for (unsigned char i = 0; i < sizeof(events)/sizeof(events[0]); i++)
+        {
+            events[i] = false;
+        }
+    }
+    return batchMsgs;
+}
+
 #endif
 
 
