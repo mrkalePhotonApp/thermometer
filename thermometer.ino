@@ -132,7 +132,7 @@ String BLYNK_LABEL_TEMP = String("temperature");
 #endif
 
 //-------------------------------------------------------------------------
-// Measuring configuration 
+// Measuring configuration
 //-------------------------------------------------------------------------
 // Measured values
 int   rssiValue;
