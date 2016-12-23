@@ -34,13 +34,13 @@ The ambient temperature is measured as a non-negative integer by analog sensor *
 
 - **Current temperature**. The value is measured several times in a measurement burst and statistically smoothed with the library *SmoothSensorData* in order to stabilize analog-digital converter. Then the smoothed valued is exponentially filtered by the library *ExponentialFilter* in order to smooth steep changes in measurements.
 
-- **Minute temperature trend**. It is an averaged temperature change speed in centigrades pre minute. From two subsequent measurements and their real time period the instant trend is calculated as a ratio of temperature difference and time stamp difference and extrapolated to a minute.
+- **Minute temperature trend**. It is an averaged temperature change speed in centigrades pre minute.
 
 - **Minimal and maximal temperature**. Those are long term statistics stored in backup memory, so that they are retained across booting the microcontroller.
 
 
 ## Particle
-For debugging purposes after changing firmware or when something goes wrong. The microcontroller utilizes native publish mechanism of the Particle platform for sending event messaged to the cloud, which are observable in the **Particle Console**.
+For debugging purposes after changing firmware or when something goes wrong. The microcontroller utilizes native publish mechanism of the Particle platform for sending event messaged to the cloud, which are observable in the **Particle Console**. The application publishes events in batches of maximal 4 of them according to the cloud politics subsequently.
 
 
 ## ThingSpeak
@@ -50,10 +50,10 @@ For graphing and eventually further processing only *current temperature* and *m
 ### Blynk
 For Blynk cloud and composing a mobile application following aspects are provided in order to observe and control the temperature measurement.
 
-- For **Blynk push notifications** the expected range of temperature values is divided into several buckets by respective temperature value thresholds. Each bucket is marked by particular temperature status and for each status a corresponding notification featured text is defined. A push notification is generated and sent to a mobile application only when a temperature status is changed.
+- For **Blynk push notifications** the expected range of temperature values is divided into several buckets by respective temperature value thresholds. Each bucket is marked by particular temperature status and for each status a corresponding notification featured text is defined. A push notification is generated and sent to a mobile application only when a temperature status is changed at relevant temperature change.
 
 - All measured values a provided to a mobile application only on demand with help related **Blynk methods and virtual pins**. Values are not pushed to the Blynk cloud, just a mobile application reads them at its time intervals.
 
-- The application provides a Blynk method for **resetting statistical extremes**, i.e., minimal and maximal temperature. It is invoked by a mobile application Blynk button press at sending a logical HIGH to the microcontroller. Is is useful when we want to start a new statistical observation, because the backup memory is cleared at power down the microcontroller only.
+- The application provides a Blynk method for **resetting statistical extremes**, i.e., minimal and maximal temperature. It is invoked by a mobile application Blynk button press at sending a logical *HIGH* to the microcontroller. Is is useful when we want to start a new statistical observation, because the backup memory is cleared at power down the microcontroller only.
 
 - The application switches on and off **Blynk LEDs** for positive and negative temperature trend, i.e., temperature increasing or decreasing, for better and smarter indication in a mobile application.
