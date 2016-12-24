@@ -82,12 +82,13 @@ STARTUP(System.enableFeature(FEATURE_RETAINED_MEMORY));
 const byte PIN_LM35 = A0;                       // Ambient temperature sensor LM35DZ
 const unsigned int REF_VOLTAGE = 3300;          // Reference voltage for analog reading in millivolts
 const float COEF_LM35 = 0.0805861;              // Centigrades per bit - Resolution 12bit, reference 3.3V, 10mV/degC
-const unsigned int TIMEOUT_WATCHDOG = 10000;    // Watchdog timeout in milliseconds
 
 
 //-------------------------------------------------------------------------
 // System configuration
 //-------------------------------------------------------------------------
+const unsigned int TIMEOUT_WATCHDOG = 10000;    // Watchdog timeout in milliseconds
+const unsigned int TIMEOUT_RECONNECT = 10000;   // Reconnection timeout in milliseconds
 unsigned int reconnects;
 
 //-------------------------------------------------------------------------
@@ -224,7 +225,7 @@ void measure()
 void watchConnection()
 {
     static unsigned long tsMeasure;
-    if (millis() - tsMeasure >= TIMEOUT_WATCHDOG)
+    if (millis() - tsMeasure >= TIMEOUT_RECONNECT)
     {
         tsMeasure = millis();
         if (!Particle.connected())
