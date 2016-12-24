@@ -12,6 +12,7 @@ Application for observing ambient temperature as well as boot count and RSSI.
   - Number of boots since recent power-up.
   - Number of seconds since recent boot.
   - Firmware version at recent boot.
+  - Number of reconnections to the Particle cloud since recent boot.
   - RSSI wifi signal intensity.
 
 

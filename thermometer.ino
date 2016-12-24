@@ -66,7 +66,7 @@
 STARTUP(WiFi.selectAntenna(ANT_INTERNAL));
 STARTUP(System.enableFeature(FEATURE_RETAINED_MEMORY));
 // SYSTEM_THREAD(ENABLED);
-SYSTEM_THREAD(DISABLED);
+// SYSTEM_THREAD(DISABLED);
 // SYSTEM_MODE(AUTOMATIC);
 
 //-------------------------------------------------------------------------
@@ -84,6 +84,11 @@ const unsigned int REF_VOLTAGE = 3300;          // Reference voltage for analog 
 const float COEF_LM35 = 0.0805861;              // Centigrades per bit - Resolution 12bit, reference 3.3V, 10mV/degC
 const unsigned int TIMEOUT_WATCHDOG = 10000;    // Watchdog timeout in milliseconds
 
+
+//-------------------------------------------------------------------------
+// System configuration
+//-------------------------------------------------------------------------
+unsigned int reconnects;
 
 //-------------------------------------------------------------------------
 // Measuring configuration
@@ -123,7 +128,7 @@ retained float tempValueMin = 100.0, tempValueMax = -25.0;
 #ifdef PARTICLE_CLOUD
 const unsigned int PERIOD_PUBLISH_PARTICLE = 15000;
 const byte PARTICLE_BATCH_LIMIT = 4;
-bool particleAfterBoot = true;
+bool particlePublishAfterBoot = true;
 #endif
 
 
@@ -157,6 +162,8 @@ char BLYNK_TOKEN[] = CREDENTIALS_BLYNK_TOKEN;
 #define VPIN_LM35_RESET  V7
 #define VPIN_LM35_LED1   V8
 #define VPIN_LM35_LED2   V9
+#define VPIN_DISCONNECT  V10
+#define VPIN_RECONNECTS  V11
 #if defined(BLYNK_SIGNAL_TEMP)
 WidgetLED ledTempInc(VPIN_LM35_LED1);
 WidgetLED ledTempDec(VPIN_LM35_LED2);
@@ -198,6 +205,7 @@ void loop()
 #ifdef BLYNK_CLOUD
     Blynk.run();
 #endif
+    watchConnection();
     measure();
     publish();
 }
@@ -207,6 +215,24 @@ void measure()
     measureRssi();
     measureTemp();
     measureTempTrend();
+}
+
+
+//-------------------------------------------------------------------------
+// Processing
+//-------------------------------------------------------------------------
+void watchConnection()
+{
+    static unsigned long tsMeasure;
+    if (millis() - tsMeasure >= TIMEOUT_WATCHDOG)
+    {
+        tsMeasure = millis();
+        if (!Particle.connected())
+        {
+            reconnects++;
+            Particle.connect();
+        }
+    }
 }
 
 void publish()
@@ -298,64 +324,43 @@ void publishParticle()
 
 byte publishParticleInits(byte sentBatchMsgs)
 {
-#ifdef PHOTON_PUBLISH_DEBUG
-    const byte PHOTON_PUBLISH_EVENTS = 5;
-#else
-    const byte PHOTON_PUBLISH_EVENTS = 1;
-#endif
-    static byte events[PHOTON_PUBLISH_EVENTS];
-    byte batchMsgs = sentBatchMsgs;    // Messages sent in the current burst
-    if (particleAfterBoot)
-    {
-        boolean publishSuccess = false;
-        byte sentMsgs = 0;     // Messages sent totally so far
-        for (byte i = 0; i < sizeof(events)/sizeof(events[0]); i++)
+    static byte sendMsgNo;          // Messages number to send next
+    byte batchMsgs = sentBatchMsgs; // Messages sent in the current publish run
+    byte startMsgNo = sendMsgNo;    // First message published in this run
+    while (particlePublishAfterBoot && batchMsgs < PARTICLE_BATCH_LIMIT)
+    {        
+        bool publishSuccess;
+        switch(sendMsgNo)
         {
-            if (batchMsgs >= PARTICLE_BATCH_LIMIT) break;
-            if (events[i])
-            {
-                sentMsgs++;
-                continue;      // No processing with already sent messages
-            }
-            
-            switch(i + 1)
-            {
-                case 1:
-                    publishSuccess = Particle.publish("Boot", String::format("%d/%d/%s", bootCount, bootRunPeriod, System.version().c_str()));
-                    break;
+            case 0:
+                publishSuccess = Particle.publish("Boot", String::format("%d/%d/%s", bootCount, bootRunPeriod, System.version().c_str()));
+                break;
 
 #ifdef PHOTON_PUBLISH_DEBUG
-                case 2:
-                    publishSuccess = Particle.publish("Sketch", String(SKETCH));
-                    break;
-                case 3:
-                    publishSuccess = Particle.publish("Library", String(WATCHDOGS_VERSION));
-                    break;
+            case 1:
+                publishSuccess = Particle.publish("Sketch", String(SKETCH));
+                break;
+                
+            case 2:
+                publishSuccess = Particle.publish("Library", String(WATCHDOGS_VERSION));
+                break;
 
-                case 4:
-                    publishSuccess = Particle.publish("Library", String(EXPONENTIALFILTER_VERSION));
-                    break;
+            case 3:
+                publishSuccess = Particle.publish("Library", String(EXPONENTIALFILTER_VERSION));
+                break;
 
-                case 5:
-                    publishSuccess = Particle.publish("Library", String(SMOOTHSENSORDATA_VERSION));
-                    break; 
+            case 4:
+                publishSuccess = Particle.publish("Library", String(SMOOTHSENSORDATA_VERSION));
+                break; 
 #endif                    
-            }
-            if (publishSuccess)
-            {
-                events[i] = true;
-                batchMsgs++;
-                sentMsgs++;
-                if (sentMsgs >= sizeof(events)/sizeof(events[0]))
-                {
-                    particleAfterBoot = false; // All initial messages have been sent
-                }
-            }
-            else
-            {
-                break;          // Break publishing due to cloud disconnection
-            }            
+            default:
+                particlePublishAfterBoot = false;
+                sendMsgNo = 0;
+                break;
         }
+        if (!publishSuccess) break; // Break publishing due to cloud disconnection
+        batchMsgs++;
+        sendMsgNo++;
     }
     return batchMsgs;
 }
@@ -363,60 +368,46 @@ byte publishParticleInits(byte sentBatchMsgs)
 #ifdef PHOTON_PUBLISH_VALUE
 byte publishParticleValues(byte sentBatchMsgs)
 {
-#if defined(PHOTON_PUBLISH_DEBUG) && defined(THINGSPEAK_CLOUD)
-    const byte PHOTON_PUBLISH_EVENTS = 4;
-#else
-    const byte PHOTON_PUBLISH_EVENTS = 3;
-#endif
-    static byte events[PHOTON_PUBLISH_EVENTS];
-    byte batchMsgs = sentBatchMsgs; // Messages sent in the current burst
-    byte sentMsgs = 0;              // Messages sent totally so far
-    boolean publishSuccess = false;
-    for (byte i = 0; i < sizeof(events)/sizeof(events[0]); i++)
-    {
-        if (batchMsgs >= PARTICLE_BATCH_LIMIT) break;
-        if (events[i])
+    static byte sendMsgNo;          // Messages number to send next
+    byte batchMsgs = sentBatchMsgs; // Messages sent in the current publish run
+    byte startMsgNo = sendMsgNo;    // First message published in this run
+    while (batchMsgs < PARTICLE_BATCH_LIMIT)
+    {        
+        bool publishSuccess;
+        switch(sendMsgNo)
         {
-            sentMsgs++;
-            continue;      // No processing with already sent messages
-        }
-        switch(i + 1)
-        {
-            case 1:
+            case 0:
                 publishSuccess = Particle.publish("RSSI", String::format("%3d", rssiValue));
                 break;
 
-            case 2:
+            case 1:
                 publishSuccess = Particle.publish("Temperature/Trend", String::format("%4.1f/%4.3f", tempValue, tempTrend));
                 break;
 
-            case 3:
+            case 2:
                 publishSuccess = Particle.publish("Status", String(TEMP_STATUS[tempStatus]));
                 break;
-#if defined(PHOTON_PUBLISH_DEBUG) && defined(THINGSPEAK_CLOUD)
+
+#ifdef PHOTON_PUBLISH_DEBUG
+            case 3:
+                publishSuccess = Particle.publish("Reconnects", String(reconnects));
+                break;
+
+#ifdef THINGSPEAK_CLOUD
             case 4:
                 publishSuccess = Particle.publish("ThingSpeakResult", String(thingspeakResult));
                 break;
 #endif
+
+#endif
+            default:
+                sendMsgNo = 0;
+                if (startMsgNo > 0) continue;   // Rotate messages from the first one
+                break;
         }
-        if (publishSuccess)
-        {
-            events[i] = true;
-            batchMsgs++;
-            sentMsgs++;
-        }
-        else
-        {
-            break;          // Break publishing due to cloud disconnection
-        }            
-    }
-    // Prepare entire batch for the next round
-    if (sentMsgs >= sizeof(events)/sizeof(events[0]))
-    {
-        for (byte i = 0; i < sizeof(events)/sizeof(events[0]); i++)
-        {
-            events[i] = false;
-        }
+        if (!publishSuccess) break; // Break publishing due to cloud disconnection
+        batchMsgs++;
+        sendMsgNo++;
     }
     return batchMsgs;
 }
@@ -556,12 +547,29 @@ BLYNK_READ(VPIN_LM35_MAX)
 }
 #endif
 
+#ifdef VPIN_RECONNECTS
+BLYNK_READ(VPIN_RECONNECTS)
+{
+    Blynk.virtualWrite(VPIN_RECONNECTS, reconnects);
+}
+#endif
+
 #ifdef VPIN_LM35_RESET
 BLYNK_WRITE(VPIN_LM35_RESET)
 {
     if (param.asInt() == HIGH)
     {
         tempValueMin = tempValueMax = tempValue;
+    }
+}
+#endif
+
+#ifdef VPIN_DISCONNECT
+BLYNK_WRITE(VPIN_DISCONNECT)
+{
+    if (param.asInt() == HIGH)
+    {
+        Particle.disconnect();
     }
 }
 #endif
