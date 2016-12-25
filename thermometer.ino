@@ -129,7 +129,6 @@ retained float tempValueMin = 100.0, tempValueMax = -25.0;
 #ifdef PARTICLE_CLOUD
 const unsigned int PERIOD_PUBLISH_PARTICLE = 15000;
 const byte PARTICLE_BATCH_LIMIT = 4;
-bool particlePublishAfterBoot = true;
 #endif
 
 
@@ -325,10 +324,11 @@ void publishParticle()
 
 byte publishParticleInits(byte sentBatchMsgs)
 {
-    static byte sendMsgNo;          // Messages number to send next
-    byte batchMsgs = sentBatchMsgs; // Messages sent in the current publish run
-    byte startMsgNo = sendMsgNo;    // First message published in this run
-    while (particlePublishAfterBoot && batchMsgs < PARTICLE_BATCH_LIMIT)
+    static bool flagAfterBoot = true;   // Flag about pending activities right after boot
+    static byte sendMsgNo;              // Messages number to send next
+    byte batchMsgs = sentBatchMsgs;     // Messages sent in the current publish run
+    byte startMsgNo = sendMsgNo;        // First message published in this run
+    while (flagAfterBoot && batchMsgs < PARTICLE_BATCH_LIMIT)
     {        
         bool publishSuccess;
         switch(sendMsgNo)
@@ -355,7 +355,7 @@ byte publishParticleInits(byte sentBatchMsgs)
                 break; 
 #endif                    
             default:
-                particlePublishAfterBoot = false;
+                flagAfterBoot = false;
                 sendMsgNo = 0;
                 break;
         }

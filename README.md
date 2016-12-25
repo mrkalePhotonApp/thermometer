@@ -41,7 +41,11 @@ The ambient temperature is measured as a non-negative integer by analog sensor *
 
 
 ## Particle
-For debugging purposes after changing firmware or when something goes wrong. The microcontroller utilizes native publish mechanism of the Particle platform for sending event messaged to the cloud, which are observable in the **Particle Console**. The application publishes events in batches of maximal 4 of them according to the cloud politics subsequently.
+For debugging purposes after changing firmware or when something goes wrong. The microcontroller utilizes native publish mechanism of the Particle platform for sending event messaged to the cloud, which are observable in the **Particle Console**.
+
+The application publishes events in batches of maximal 4 of them according to the cloud politics subsequently. Subsequent events batch is published in the next publishing period determined by corresponding configurtion constant.
+
+At first, the application publishes events related to start (boot) of the microcontroller. Those events are published only once and in several batches if needed. After that the regular events (usually with measured values) are published repeatably. They are rotated in several batches if needed.
 
 
 ## ThingSpeak
