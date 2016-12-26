@@ -3,32 +3,7 @@
   Measuring temperature with analog sensor LM35DZ.
 
   DESCRIPTION:
-  Application for observing ambient temperature as well as boot count and RSSI.
-  - Physical observation:
-    - Ambient temperature by analog sensor LM35DZ in bits within
-      range 0 ~ 4095 with 12-bit resolution.
-    - The long term minimal and maximal value is calculated.
-  - System observation:
-    - Number of boots since recent power-up.
-    - RSSI wifi signal intensity.
-  - All measured values are statistically processed:
-    - A batch (burst) of measured values is statistically smoothed by median
-      and result is considered as a measured value.
-    - Smoothed (measured) values is then processed by exponential filter
-      with individual smoothing factor and result is considered as a final
-      processed value.
-  - Hardware watchdog timers built in microcontroller are utilized for
-    reseting the microcontroller when it freezes in order to ensure
-    unattended operation.
-  - Publishing to cloud services:
-    - ThingSpeak for graphing and further analyzing of smoothed
-      and filtered values.
-    - Blynk for mobile application observation and control.
-  - The application utilizes a separate include credentials file
-    with credentials to cloud services.
-    - The credential file contains just placeholder for credentials.
-    - Replace credential placeholders with real ones only in the Particle
-      dashboard in order not to share or reveal them.
+  The application utilizes several technologies for publishing measured values. It serves for getting acquainted with those ones and to use all of them concurrently. As a measured physical value the application utilizes ambient temperature along side with some system measures like boot and reconnect count, RSSI, etc. See more about the application in the README.md file.
 
   LICENSE:
   This program is free software; you can redistribute it and/or modify
@@ -38,8 +13,9 @@
   Author: Libor Gabaj
 */
 #define PARTICLE_CLOUD              // Comment to totally ignore Particle Cloud
-#define PHOTON_PUBLISH_DEBUG        // Uncomment to publish debug events to Particle
-#define PHOTON_PUBLISH_VALUE        // Uncomment to publish regular events to Particle
+#define PHOTON_PUBLISH_DEBUG        // Uncomment to publish debug events to Particle Cloud
+#define PHOTON_PUBLISH_VALUE        // Uncomment to publish regular events to Particle Cloud
+#define PHOTON_PUBLISH_VARS         // Uncomment to publish Particle variables
 
 #define THINGSPEAK_CLOUD            // Comment to totally ignore ThingSpeak Cloud
 
@@ -89,7 +65,6 @@ const float COEF_LM35 = 0.0805861;              // Centigrades per bit - Resolut
 //-------------------------------------------------------------------------
 const unsigned int TIMEOUT_WATCHDOG = 10000;    // Watchdog timeout in milliseconds
 const unsigned int TIMEOUT_RECONNECT = 10000;   // Reconnection timeout in milliseconds
-unsigned int reconnects;
 
 //-------------------------------------------------------------------------
 // Measuring configuration
@@ -115,11 +90,12 @@ SmoothSensorData smooth;
 
 // Measured values
 int rssiValue;
-float tempValue = TEMP_VALUE_NAN, tempTrend;
+double tempValue = TEMP_VALUE_NAN;  // Data type due to Particle Variable
+float tempTrend;
 byte tempStatus;
 
 // Backup variables (long term statistics)
-retained int bootCount, bootTimeLast, bootRunPeriod;
+retained int bootCount, bootTimeLast, bootRunPeriod, reconnects;
 retained float tempValueMin = 100.0, tempValueMax = -25.0;
 
 
@@ -129,6 +105,9 @@ retained float tempValueMin = 100.0, tempValueMax = -25.0;
 #ifdef PARTICLE_CLOUD
 const unsigned int PERIOD_PUBLISH_PARTICLE = 15000;
 const byte PARTICLE_BATCH_LIMIT = 4;
+#define PARTICLE_VAR_BOOT   "boots"
+#define PARTICLE_VAR_RECON  "reconnects"
+#define PARTICLE_VAR_TEMP   "temperature"
 #endif
 
 
@@ -184,13 +163,22 @@ void setup()
     // Boot process
     if (bootCount++ > 0) bootRunPeriod = max(0, Time.now() - bootTimeLast);
     bootTimeLast = Time.now();
+
     // Clouds
+#if defined(PARTICLE_CLOUD) && defined(PHOTON_PUBLISH_VARS)
+    Particle.variable(PARTICLE_VAR_BOOT, bootCount);
+    Particle.variable(PARTICLE_VAR_RECON, reconnects);
+    Particle.variable(PARTICLE_VAR_TEMP, tempValue);
+#endif
+
 #ifdef THINGSPEAK_CLOUD
     ThingSpeak.begin(ThingSpeakClient);
 #endif
+
 #ifdef BLYNK_CLOUD
     Blynk.begin(BLYNK_TOKEN);
 #endif
+
     // Start watchdogs
     Watchdogs::begin(TIMEOUT_WATCHDOG);
 }
@@ -275,7 +263,7 @@ void measureTemp()
         tsMeasure = millis();
         while(smooth.registerData(analogRead(PIN_LM35)));
         tempValue = efTemp.getValue(COEF_LM35 * smooth.getMidAverage());
-        tempValueMin = fmin(tempValueMin, tempValue); 
+        tempValueMin = fmin(tempValueMin, tempValue);
         tempValueMax = fmax(tempValueMax, tempValue);
         // Status
         tempStatus = 0;
@@ -327,9 +315,8 @@ byte publishParticleInits(byte sentBatchMsgs)
     static bool flagAfterBoot = true;   // Flag about pending activities right after boot
     static byte sendMsgNo;              // Messages number to send next
     byte batchMsgs = sentBatchMsgs;     // Messages sent in the current publish run
-    byte startMsgNo = sendMsgNo;        // First message published in this run
     while (flagAfterBoot && batchMsgs < PARTICLE_BATCH_LIMIT)
-    {        
+    {
         bool publishSuccess;
         switch(sendMsgNo)
         {
@@ -341,7 +328,7 @@ byte publishParticleInits(byte sentBatchMsgs)
             case 1:
                 publishSuccess = Particle.publish("Sketch", String(SKETCH));
                 break;
-                
+
             case 2:
                 publishSuccess = Particle.publish("Library", String(WATCHDOGS_VERSION));
                 break;
@@ -352,8 +339,8 @@ byte publishParticleInits(byte sentBatchMsgs)
 
             case 4:
                 publishSuccess = Particle.publish("Library", String(SMOOTHSENSORDATA_VERSION));
-                break; 
-#endif                    
+                break;
+#endif
             default:
                 flagAfterBoot = false;
                 sendMsgNo = 0;
@@ -373,7 +360,7 @@ byte publishParticleValues(byte sentBatchMsgs)
     byte batchMsgs = sentBatchMsgs; // Messages sent in the current publish run
     byte startMsgNo = sendMsgNo;    // First message published in this run
     while (batchMsgs < PARTICLE_BATCH_LIMIT)
-    {        
+    {
         bool publishSuccess;
         switch(sendMsgNo)
         {
@@ -431,17 +418,17 @@ void publishThingspeak()
 
 #ifdef FIELD_RSSI_VALUE
         isField = true;
-        ThingSpeak.setField(FIELD_RSSI_VALUE, rssiValue);
+        ThingSpeak.setField(FIELD_RSSI_VALUE, (int)rssiValue);
 #endif
 
 #ifdef FIELD_TEMP_VALUE
         isField = true;
-        ThingSpeak.setField(FIELD_TEMP_VALUE, tempValue);
+        ThingSpeak.setField(FIELD_TEMP_VALUE, (float)tempValue);
 #endif
 
 #ifdef FIELD_TEMP_TREND
         isField = true;
-        ThingSpeak.setField(FIELD_TEMP_TREND, tempTrend);
+        ThingSpeak.setField(FIELD_TEMP_TREND, (float)tempTrend);
 #endif
 
         // Publish if there is something to
@@ -472,7 +459,7 @@ void publishBlynk()
         // Publish only at relevant temperature change
         if (fabs(tempValue - tempValueOld) > TEMP_VALUE_MARGIN)
         {
-        
+
             // Temperature status push notification
 #ifdef BLYNK_NOTIFY_TEMP
             if (tempStatus != tempStatusOld)

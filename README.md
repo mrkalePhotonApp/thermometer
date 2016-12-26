@@ -1,18 +1,18 @@
 # thermometer
-Application for observing ambient temperature as well as boot count and RSSI.
+The application utilizes several technologies for publishing measured values. It serves for getting acquainted with those ones and to use all of them concurrently. As a measured physical value the application utilizes ambient temperature along side with some system measures like boot and reconnect count, RSSI, etc.
 
 - *Physical observation*:
   - The ambient temperature in centigrades with analog temperature sensor LM35DZ.
-  - The trend is calculated in centigrades change per minute.
-  - The status is determined based on value buckets.
-  - The long term minimal and maximal temperature is calculated.
+  - The temperature trend calculated as a centigrade change over a minute.
+  - The temperature status determined based on temperature value buckets.
+  - The long term minimal and maximal temperature as temperature statistics.
 
 
 - *System observation*:
   - Number of boots since recent power-up.
   - Number of seconds since recent boot.
   - Firmware version at recent boot.
-  - Number of reconnections to the Particle cloud since recent boot.
+  - Number of reconnections to the Particle cloud since recent power-up.
   - RSSI wifi signal intensity.
 
 
@@ -33,15 +33,21 @@ Application for observing ambient temperature as well as boot count and RSSI.
 ## Temperature measurement
 The ambient temperature is measured as a non-negative integer by analog sensor **LM35DZ** in bits within range 0 ~ 4095 with 12-bit resolution. The temperature is then calculated from the measured value by multiplying it with sensor coeficient. The application calculates following values.
 
-- **Current temperature**. The value is measured several times in a measurement burst and statistically smoothed with the library *SmoothSensorData* in order to stabilize analog-digital converter. Then the smoothed valued is exponentially filtered by the library *ExponentialFilter* in order to smooth steep changes in measurements.
+- **Current temperature**. The value is measured several times in a measurement burst and statistically smoothed with the library *SmoothSensorData* in order to stabilize analog-digital converter. Then the smoothed value is exponentially filtered by the library *ExponentialFilter* in order to smooth steep changes in measurements.
 
-- **Minute temperature trend**. It is an averaged temperature change speed in centigrades pre minute.
+- **Minute temperature trend**. It is an averaged temperature change speed in centigrades pre minute. It is really measured every minute, but calculated precisly from stored temperature time snapshots.
 
 - **Minimal and maximal temperature**. Those are long term statistics stored in backup memory, so that they are retained across booting the microcontroller.
 
 
 ## Particle
-For debugging purposes after changing firmware or when something goes wrong. The microcontroller utilizes native publish mechanism of the Particle platform for sending event messaged to the cloud, which are observable in the **Particle Console**.
+For publishing interesting values the application utilizes **Particle Variables**, which values can be requested over internet and they are:
+    
+- ***boots***: number of boots of the microcontroller since recent power-up
+- ***reconnects***: number of reconnects to the Particle Cloud since recent power-up
+- ***temperature***: current measured temperature in centigrades
+
+For debugging purposes after changing firmware or when something goes wrong the application utilizes native publish mechanism of the Particle platform for sending event messaged to the cloud, which are observable in the **Particle Console**.
 
 The application publishes events in batches of maximal 4 of them according to the cloud politics subsequently. Subsequent events batch is published in the next publishing period determined by corresponding configurtion constant.
 
