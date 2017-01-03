@@ -37,7 +37,10 @@
 #include "blynk/blynk.h"
 #endif
 
-// Boot
+
+//-------------------------------------------------------------------------
+// Boot setup
+//-------------------------------------------------------------------------
 // STARTUP(WiFi.selectAntenna(ANT_EXTERNAL));
 STARTUP(WiFi.selectAntenna(ANT_INTERNAL));
 STARTUP(System.enableFeature(FEATURE_RETAINED_MEMORY));
@@ -45,10 +48,11 @@ STARTUP(System.enableFeature(FEATURE_RETAINED_MEMORY));
 // SYSTEM_THREAD(DISABLED);
 // SYSTEM_MODE(AUTOMATIC);
 
+
 //-------------------------------------------------------------------------
 // Temperature sensing and publishing to Particle, ThinkSpeak, and Blynk
 //-------------------------------------------------------------------------
-#define SKETCH "THERMOMETER 1.1.0"
+#define SKETCH "THERMOMETER 1.2.0"
 #include "credentials.h"
 
 
@@ -66,6 +70,7 @@ const float COEF_LM35 = 0.0805861;              // Centigrades per bit - Resolut
 const unsigned int TIMEOUT_WATCHDOG = 10000;    // Watchdog timeout in milliseconds
 const unsigned int TIMEOUT_RECONNECT = 10000;   // Reconnection timeout in milliseconds
 
+
 //-------------------------------------------------------------------------
 // Measuring configuration
 //-------------------------------------------------------------------------
@@ -82,10 +87,10 @@ const float TEMP_BUCKET[] = {0.0, 5.0, 16.0, 20.0, 24.0, 28.0};
 const char* TEMP_STATUS[] = {"unknown", "Freeze", "Cold", "Lukewarm", "Normal", "Warm", "Hot"};
 
 // Statistical smoothing and exponential filtering
-const float FACTOR_RSSI = 0.1;    // Filtering factor for RSSI
-const float FACTOR_TEMP = 0.2;    // Filtering factor for temperature
-ExponentialFilter efRssi = ExponentialFilter(FACTOR_RSSI);
-ExponentialFilter efTemp = ExponentialFilter(FACTOR_TEMP);
+const float EXPFILTER_FACTOR_RSSI = 0.1;    // Filtering factor for RSSI
+const float EXPFILTER_FACTOR_TEMP = 0.2;    // Filtering factor for temperature
+ExponentialFilter efRssi = ExponentialFilter(EXPFILTER_FACTOR_RSSI);
+ExponentialFilter efTemp = ExponentialFilter(EXPFILTER_FACTOR_TEMP);
 SmoothSensorData smooth;
 
 // Measured values
@@ -96,7 +101,7 @@ byte tempStatus;
 
 // Backup variables (long term statistics)
 retained int bootCount, bootTimeLast, bootRunPeriod, reconnects;
-retained float tempValueMin = 100.0, tempValueMax = -25.0;
+retained float tempValueMin = 150.0, tempValueMax = -50.0;
 
 
 //-------------------------------------------------------------------------
@@ -117,10 +122,10 @@ const byte PARTICLE_BATCH_LIMIT = 4;
 #ifdef THINGSPEAK_CLOUD
 const unsigned int PERIOD_PUBLISH_THINGSPEAK = 60000;
 const char* THINGSPEAK_TOKEN = CREDENTIALS_THINGSPEAK_TOKEN;
-const unsigned long CHANNEL_NUMBER = CREDENTIALS_THINGSPEAK_CHANNEL;
-#define FIELD_RSSI_VALUE 1
-#define FIELD_TEMP_VALUE 2
-#define FIELD_TEMP_TREND 3
+const unsigned long THINGSPEAK_CHANNEL_NUMBER = CREDENTIALS_THINGSPEAK_CHANNEL;
+#define THINGSPEAK_FIELD_RSSI_VALUE 1
+#define THINGSPEAK_FIELD_TEMP_VALUE 2
+#define THINGSPEAK_FIELD_TEMP_TREND 3
 TCPClient ThingSpeakClient;
 int thingspeakResult;
 #endif
@@ -132,20 +137,19 @@ int thingspeakResult;
 #ifdef BLYNK_CLOUD
 const unsigned int PERIOD_PUBLISH_BLYNK = 30000;
 char BLYNK_TOKEN[] = CREDENTIALS_BLYNK_TOKEN;
-#define VPIN_BOOT_VALUE  V1
-#define VPIN_RSSI_VALUE  V2
-#define VPIN_LM35_VALUE  V3
-#define VPIN_LM35_TREND  V4
-#define VPIN_LM35_MIN    V5
-#define VPIN_LM35_MAX    V6
-#define VPIN_LM35_RESET  V7
-#define VPIN_LM35_LED1   V8
-#define VPIN_LM35_LED2   V9
-#define VPIN_DISCONNECT  V10
-#define VPIN_RECONNECTS  V11
+#define BLYNK_VPIN_BOOT_VALUE  V1
+#define BLYNK_VPIN_RSSI_VALUE  V2
+#define BLYNK_VPIN_LM35_VALUE  V3
+#define BLYNK_VPIN_LM35_TREND  V4
+#define BLYNK_VPIN_LM35_MIN    V5
+#define BLYNK_VPIN_LM35_MAX    V6
+#define BLYNK_VPIN_LM35_RESET  V7
+#define BLYNK_VPIN_LM35_LED1   V8
+#define BLYNK_VPIN_LM35_LED2   V9
+#define BLYNK_VPIN_RECONNECTS  V10
 #if defined(BLYNK_SIGNAL_TEMP)
-WidgetLED ledTempInc(VPIN_LM35_LED1);
-WidgetLED ledTempDec(VPIN_LM35_LED2);
+WidgetLED ledTempInc(BLYNK_VPIN_LM35_LED1);
+WidgetLED ledTempDec(BLYNK_VPIN_LM35_LED2);
 #endif
 #if defined(BLYNK_NOTIFY_TEMP)
 String BLYNK_LABEL_GLUE = String(" -- ");
@@ -416,25 +420,25 @@ void publishThingspeak()
         tsPublish = millis();
         bool isField = false;
 
-#ifdef FIELD_RSSI_VALUE
+#ifdef THINGSPEAK_FIELD_RSSI_VALUE
         isField = true;
-        ThingSpeak.setField(FIELD_RSSI_VALUE, (int)rssiValue);
+        ThingSpeak.setField(THINGSPEAK_FIELD_RSSI_VALUE, (int)rssiValue);
 #endif
 
-#ifdef FIELD_TEMP_VALUE
+#ifdef THINGSPEAK_FIELD_TEMP_VALUE
         isField = true;
-        ThingSpeak.setField(FIELD_TEMP_VALUE, (float)tempValue);
+        ThingSpeak.setField(THINGSPEAK_FIELD_TEMP_VALUE, (float)tempValue);
 #endif
 
-#ifdef FIELD_TEMP_TREND
+#ifdef THINGSPEAK_FIELD_TEMP_TREND
         isField = true;
-        ThingSpeak.setField(FIELD_TEMP_TREND, (float)tempTrend);
+        ThingSpeak.setField(THINGSPEAK_FIELD_TEMP_TREND, (float)tempTrend);
 #endif
 
         // Publish if there is something to
         if (isField)
         {
-            thingspeakResult = ThingSpeak.writeFields(CHANNEL_NUMBER, THINGSPEAK_TOKEN);
+            thingspeakResult = ThingSpeak.writeFields(THINGSPEAK_CHANNEL_NUMBER, THINGSPEAK_TOKEN);
         }
     }
 }
@@ -464,7 +468,7 @@ void publishBlynk()
 #ifdef BLYNK_NOTIFY_TEMP
             if (tempStatus != tempStatusOld)
             {
-                Blynk.notify(BLYNK_LABEL_PREFIX + BLYNK_LABEL_GLUE + BLYNK_LABEL_TEMP + BLYNK_LABEL_GLUE + TEMP_STATUS[tempStatus]);
+                Blynk.notify(BLYNK_LABEL_PREFIX + BLYNK_LABEL_GLUE + BLYNK_LABEL_TEMP + BLYNK_LABEL_GLUE + TEMP_STATUS[tempStatus] + BLYNK_LABEL_GLUE + String::format("%4.1f °C", tempValue));
                 tempStatusOld = tempStatus;
             }
 #endif
@@ -493,71 +497,61 @@ void publishBlynk()
 #endif
 }
 
-#ifdef VPIN_BOOT_VALUE
-BLYNK_READ(VPIN_BOOT_VALUE)
+#ifdef BLYNK_VPIN_BOOT_VALUE
+BLYNK_READ(BLYNK_VPIN_BOOT_VALUE)
 {
-    Blynk.virtualWrite(VPIN_BOOT_VALUE, bootCount);
+    Blynk.virtualWrite(BLYNK_VPIN_BOOT_VALUE, bootCount);
 }
 #endif
 
-#ifdef VPIN_RSSI_VALUE
-BLYNK_READ(VPIN_RSSI_VALUE)
+#ifdef BLYNK_VPIN_RSSI_VALUE
+BLYNK_READ(BLYNK_VPIN_RSSI_VALUE)
 {
-    Blynk.virtualWrite(VPIN_RSSI_VALUE, rssiValue);
+    Blynk.virtualWrite(BLYNK_VPIN_RSSI_VALUE, rssiValue);
 }
 #endif
 
-#ifdef VPIN_LM35_VALUE
-BLYNK_READ(VPIN_LM35_VALUE)
+#ifdef BLYNK_VPIN_LM35_VALUE
+BLYNK_READ(BLYNK_VPIN_LM35_VALUE)
 {
-    Blynk.virtualWrite(VPIN_LM35_VALUE, String::format("%4.1f", tempValue));
+    Blynk.virtualWrite(BLYNK_VPIN_LM35_VALUE, String::format("%4.1f", tempValue));
 }
 #endif
 
-#ifdef VPIN_LM35_TREND
-BLYNK_READ(VPIN_LM35_TREND)
+#ifdef BLYNK_VPIN_LM35_TREND
+BLYNK_READ(BLYNK_VPIN_LM35_TREND)
 {
-    Blynk.virtualWrite(VPIN_LM35_TREND, String::format("%5.3f", tempTrend));
+    Blynk.virtualWrite(BLYNK_VPIN_LM35_TREND, String::format("%5.3f", tempTrend));
 }
 #endif
 
-#ifdef VPIN_LM35_MIN
-BLYNK_READ(VPIN_LM35_MIN)
+#ifdef BLYNK_VPIN_LM35_MIN
+BLYNK_READ(BLYNK_VPIN_LM35_MIN)
 {
-    Blynk.virtualWrite(VPIN_LM35_MIN, String::format("%4.1f", tempValueMin));
+    Blynk.virtualWrite(BLYNK_VPIN_LM35_MIN, String::format("%4.1f", tempValueMin));
 }
 #endif
 
-#ifdef VPIN_LM35_MAX
-BLYNK_READ(VPIN_LM35_MAX)
+#ifdef BLYNK_VPIN_LM35_MAX
+BLYNK_READ(BLYNK_VPIN_LM35_MAX)
 {
-    Blynk.virtualWrite(VPIN_LM35_MAX, String::format("%4.1f", tempValueMax));
+    Blynk.virtualWrite(BLYNK_VPIN_LM35_MAX, String::format("%4.1f", tempValueMax));
 }
 #endif
 
-#ifdef VPIN_RECONNECTS
-BLYNK_READ(VPIN_RECONNECTS)
+#ifdef BLYNK_VPIN_RECONNECTS
+BLYNK_READ(BLYNK_VPIN_RECONNECTS)
 {
-    Blynk.virtualWrite(VPIN_RECONNECTS, reconnects);
+    Blynk.virtualWrite(BLYNK_VPIN_RECONNECTS, reconnects);
 }
 #endif
 
-#ifdef VPIN_LM35_RESET
-BLYNK_WRITE(VPIN_LM35_RESET)
+#ifdef BLYNK_VPIN_LM35_RESET
+BLYNK_WRITE(BLYNK_VPIN_LM35_RESET)
 {
     if (param.asInt() == HIGH)
     {
         tempValueMin = tempValueMax = tempValue;
-    }
-}
-#endif
-
-#ifdef VPIN_DISCONNECT
-BLYNK_WRITE(VPIN_DISCONNECT)
-{
-    if (param.asInt() == HIGH)
-    {
-        Particle.disconnect();
     }
 }
 #endif
