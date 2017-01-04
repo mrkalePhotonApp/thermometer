@@ -4,6 +4,7 @@
 
   DESCRIPTION:
   The application utilizes several technologies for publishing measured values. It serves for getting acquainted with those ones and to use all of them concurrently. As a measured physical value the application utilizes ambient temperature along side with some system measures like boot and reconnect count, RSSI, etc. See more about the application in the README.md file.
+  - Siplified version.
 
   LICENSE:
   This program is free software; you can redistribute it and/or modify
@@ -15,7 +16,6 @@
 #define PARTICLE_CLOUD              // Comment to totally ignore Particle Cloud
 #define PHOTON_PUBLISH_DEBUG        // Uncomment to publish debug events to Particle Cloud
 #define PHOTON_PUBLISH_VALUE        // Uncomment to publish regular events to Particle Cloud
-#define PHOTON_PUBLISH_VARS         // Uncomment to publish Particle variables
 
 #define THINGSPEAK_CLOUD            // Comment to totally ignore ThingSpeak Cloud
 
@@ -52,7 +52,7 @@ STARTUP(System.enableFeature(FEATURE_RETAINED_MEMORY));
 //-------------------------------------------------------------------------
 // Temperature sensing and publishing to Particle, ThinkSpeak, and Blynk
 //-------------------------------------------------------------------------
-#define SKETCH "THERMOMETER 1.2.0"
+#define SKETCH "THERMOMETER01 1.0.0"
 #include "credentials.h"
 
 
@@ -75,10 +75,9 @@ const unsigned int TIMEOUT_RECONNECT = 10000;   // Reconnection timeout in milli
 // Measuring configuration
 //-------------------------------------------------------------------------
 
-// Periods (delays) in milliseconds
+// Measurement periods in milliseconds
 const unsigned int PERIOD_MEASURE_RSSI = 2000;
 const unsigned int PERIOD_MEASURE_TEMP = 2000;
-const unsigned int PERIOD_MEASURE_TEMP_TREND = 60000;
 
 // Temperature processing parameters (in centigrades)
 const float TEMP_VALUE_NAN = -999.0;    // Temperature not a number
@@ -95,8 +94,7 @@ SmoothSensorData smooth;
 
 // Measured values
 int rssiValue;
-double tempValue = TEMP_VALUE_NAN;  // Data type due to Particle Variable
-float tempTrend;
+float tempValue = TEMP_VALUE_NAN;
 byte tempStatus;
 
 // Backup variables (long term statistics)
@@ -125,7 +123,7 @@ const char* THINGSPEAK_TOKEN = CREDENTIALS_THINGSPEAK_TOKEN;
 const unsigned long THINGSPEAK_CHANNEL_NUMBER = CREDENTIALS_THINGSPEAK_CHANNEL;
 #define THINGSPEAK_FIELD_RSSI_VALUE 1
 #define THINGSPEAK_FIELD_TEMP_VALUE 2
-#define THINGSPEAK_FIELD_TEMP_TREND 3
+#define THINGSPEAK_FIELD_TEMP_DIFF  3
 TCPClient ThingSpeakClient;
 int thingspeakResult;
 #endif
@@ -140,7 +138,7 @@ char BLYNK_TOKEN[] = CREDENTIALS_BLYNK_TOKEN;
 #define BLYNK_VPIN_BOOT_VALUE  V1
 #define BLYNK_VPIN_RSSI_VALUE  V2
 #define BLYNK_VPIN_TEMP_VALUE  V3
-#define BLYNK_VPIN_TEMP_TREND  V4
+#define BLYNK_VPIN_TEMP_DIFF   V4
 #define BLYNK_VPIN_TEMP_MIN    V5
 #define BLYNK_VPIN_TEMP_MAX    V6
 #define BLYNK_VPIN_TEMP_RESET  V7
@@ -168,12 +166,6 @@ void setup()
     bootTimeLast = Time.now();
 
     // Clouds
-#if defined(PARTICLE_CLOUD) && defined(PHOTON_PUBLISH_VARS)
-    Particle.variable(PARTICLE_VAR_BOOT, bootCount);
-    Particle.variable(PARTICLE_VAR_RECON, reconnects);
-    Particle.variable(PARTICLE_VAR_TEMP, tempValue);
-#endif
-
 #ifdef THINGSPEAK_CLOUD
     ThingSpeak.begin(ThingSpeakClient);
 #endif
@@ -205,7 +197,6 @@ void measure()
 {
     measureRssi();
     measureTemp();
-    measureTempTrend();
 }
 
 
@@ -260,7 +251,7 @@ void measureRssi()
 
 void measureTemp()
 {
-    static unsigned long tsMeasure;
+    static unsigned long tsMeasure, cntMeasure;
     if (millis() - tsMeasure >= PERIOD_MEASURE_TEMP || tsMeasure == 0)
     {
         tsMeasure = millis();
@@ -268,30 +259,12 @@ void measureTemp()
         tempValue = efTemp.getValue(COEF_LM35 * smooth.getMidAverage());
         tempValueMin = fmin(tempValueMin, tempValue);
         tempValueMax = fmax(tempValueMax, tempValue);
-        // Status
+        // Temperature status
         tempStatus = 0;
         for (byte i = 0; i < sizeof(TEMP_BUCKET)/sizeof(TEMP_BUCKET[0]); i++)
         {
             if (tempValue >= TEMP_BUCKET[i]) tempStatus = i + 1;
         }
-    }
-}
-
-// Temperature change per minute in centigrades
-void measureTempTrend()
-{
-    static unsigned long tsMeasure, tsMeasureOld;
-    static float tempValueOld;
-    if (tempValue == TEMP_VALUE_NAN) return;    // No processing before measurement
-    if (millis() - tsMeasure >= PERIOD_MEASURE_TEMP_TREND || tsMeasure == 0)
-    {
-        tsMeasure = millis();
-        if (tsMeasureOld > 0)
-        {
-            tempTrend = 6e4 * (tempValue - tempValueOld) / ((float) tsMeasure - (float) tsMeasureOld);
-        }
-        tsMeasureOld = tsMeasure;
-        tempValueOld = tempValue;
     }
 }
 
@@ -372,7 +345,7 @@ byte publishParticleValues(byte sentBatchMsgs)
                 break;
 
             case 1:
-                publishSuccess = Particle.publish("Temperature/Trend", String::format("%4.1f/%4.3f", tempValue, tempTrend));
+                publishSuccess = Particle.publish("Temp", String::format("%4.1f", tempValue));
                 break;
 
             case 2:
@@ -413,6 +386,7 @@ byte publishParticleValues(byte sentBatchMsgs)
 #ifdef THINGSPEAK_CLOUD
 void publishThingspeak()
 {
+    static float tempValueOld = TEMP_VALUE_NAN;
     static unsigned long tsPublish;
     if (millis() - tsPublish >= PERIOD_PUBLISH_THINGSPEAK)
     {
@@ -429,9 +403,12 @@ void publishThingspeak()
         ThingSpeak.setField(THINGSPEAK_FIELD_TEMP_VALUE, (float)tempValue);
 #endif
 
-#ifdef THINGSPEAK_FIELD_TEMP_TREND
+#ifdef THINGSPEAK_FIELD_TEMP_DIFF
         isField = true;
-        ThingSpeak.setField(THINGSPEAK_FIELD_TEMP_TREND, (float)tempTrend);
+        if (tempValueOld == TEMP_VALUE_NAN) tempValueOld = tempValue;
+        float tempDiff = tempValue - tempValueOld;
+        tempValueOld = tempValue;
+        ThingSpeak.setField(THINGSPEAK_FIELD_TEMP_DIFF, (float)tempDiff);
 #endif
 
         // Publish if there is something to
@@ -517,10 +494,14 @@ BLYNK_READ(BLYNK_VPIN_TEMP_VALUE)
 }
 #endif
 
-#ifdef BLYNK_VPIN_TEMP_TREND
-BLYNK_READ(BLYNK_VPIN_TEMP_TREND)
+#ifdef BLYNK_VPIN_TEMP_DIFF
+BLYNK_READ(BLYNK_VPIN_TEMP_DIFF)
 {
-    Blynk.virtualWrite(BLYNK_VPIN_TEMP_TREND, String::format("%5.3f", tempTrend));
+    static float tempValueOld = TEMP_VALUE_NAN;
+    if (tempValueOld == TEMP_VALUE_NAN) tempValueOld = tempValue;
+    float tempDiff = tempValue - tempValueOld;
+    tempValueOld = tempValue;
+    Blynk.virtualWrite(BLYNK_VPIN_TEMP_DIFF, String::format("%4.1f", tempDiff));
 }
 #endif
 
