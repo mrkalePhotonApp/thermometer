@@ -13,7 +13,7 @@
   CREDENTIALS:
   Author: Libor Gabaj
 */
-#define PARTICLE_CLOUD              // Comment to totally ignore Particle Cloud
+// #define PARTICLE_CLOUD              // Comment to totally ignore Particle Cloud
 #define PHOTON_PUBLISH_DEBUG        // Uncomment to publish debug events to Particle Cloud
 #define PHOTON_PUBLISH_VALUE        // Uncomment to publish regular events to Particle Cloud
 
@@ -52,7 +52,7 @@ STARTUP(System.enableFeature(FEATURE_RETAINED_MEMORY));
 //-------------------------------------------------------------------------
 // Temperature sensing and publishing to Particle, ThinkSpeak, and Blynk
 //-------------------------------------------------------------------------
-#define SKETCH "THERMOMETER01 1.0.0"
+#define SKETCH "THERMOMETER01 1.1.0"
 #include "credentials.h"
 
 
@@ -138,6 +138,7 @@ char BLYNK_TOKEN[] = CREDENTIALS_BLYNK_TOKEN;
 #define BLYNK_VPIN_BOOT_VALUE  V1
 #define BLYNK_VPIN_RSSI_VALUE  V2
 #define BLYNK_VPIN_TEMP_VALUE  V3
+#define BLYNK_VPIN_TEMP_GRAF   V11
 #define BLYNK_VPIN_TEMP_DIFF   V4
 #define BLYNK_VPIN_TEMP_MIN    V5
 #define BLYNK_VPIN_TEMP_MAX    V6
@@ -251,7 +252,7 @@ void measureRssi()
 
 void measureTemp()
 {
-    static unsigned long tsMeasure, cntMeasure;
+    static unsigned long tsMeasure;
     if (millis() - tsMeasure >= PERIOD_MEASURE_TEMP || tsMeasure == 0)
     {
         tsMeasure = millis();
@@ -436,10 +437,25 @@ void publishBlynk()
     if (millis() - tsPublish >= PERIOD_PUBLISH_BLYNK)
     {
         tsPublish = millis();
-        // Publish only at relevant temperature change
-        if (fabs(tempValue - tempValueOld) > TEMP_VALUE_MARGIN)
+        float tempDiff = tempValue - tempValueOld;
+        
+        // Imidiate publishing
+#ifdef BLYNK_VPIN_TEMP_VALUE
+        // Pushing temperature value to the cloud for gauge
+        Blynk.virtualWrite(BLYNK_VPIN_TEMP_VALUE, String::format("%4.1f", tempValue));
+#endif            
+#ifdef BLYNK_VPIN_TEMP_GRAF
+        // Pushing temperature value to the cloud for graph
+        Blynk.virtualWrite(BLYNK_VPIN_TEMP_GRAF, String::format("%4.1f", tempValue));
+#endif            
+#ifdef BLYNK_VPIN_TEMP_DIFF
+        // Pushing temperature change to the cloud
+        Blynk.virtualWrite(BLYNK_VPIN_TEMP_DIFF, String::format("%4.1f", tempDiff));
+#endif
+        
+        // Publishing only at relevant temperature change
+        if (fabs(tempDiff) > TEMP_VALUE_MARGIN)
         {
-
             // Temperature status push notification
 #ifdef BLYNK_NOTIFY_TEMP
             if (tempStatus != tempStatusOld)
@@ -451,12 +467,12 @@ void publishBlynk()
 
             // Temperature change signalling
 #ifdef BLYNK_SIGNAL_TEMP
-            if (tempValue > tempValueOld)
+            if (tempDiff > 0)
             {
                 ledTempInc.on();
                 ledTempDec.off();
             }
-            else if (tempValue < tempValueOld)
+            else if (tempDiff < 0)
             {
                 ledTempInc.off();
                 ledTempDec.on();
@@ -473,6 +489,9 @@ void publishBlynk()
 #endif
 }
 
+//-------------------------------------------------------------------------
+// Blynk reads
+//-------------------------------------------------------------------------
 #ifdef BLYNK_VPIN_BOOT_VALUE
 BLYNK_READ(BLYNK_VPIN_BOOT_VALUE)
 {
@@ -484,24 +503,6 @@ BLYNK_READ(BLYNK_VPIN_BOOT_VALUE)
 BLYNK_READ(BLYNK_VPIN_RSSI_VALUE)
 {
     Blynk.virtualWrite(BLYNK_VPIN_RSSI_VALUE, rssiValue);
-}
-#endif
-
-#ifdef BLYNK_VPIN_TEMP_VALUE
-BLYNK_READ(BLYNK_VPIN_TEMP_VALUE)
-{
-    Blynk.virtualWrite(BLYNK_VPIN_TEMP_VALUE, String::format("%4.1f", tempValue));
-}
-#endif
-
-#ifdef BLYNK_VPIN_TEMP_DIFF
-BLYNK_READ(BLYNK_VPIN_TEMP_DIFF)
-{
-    static float tempValueOld = TEMP_VALUE_NAN;
-    if (tempValueOld == TEMP_VALUE_NAN) tempValueOld = tempValue;
-    float tempDiff = tempValue - tempValueOld;
-    tempValueOld = tempValue;
-    Blynk.virtualWrite(BLYNK_VPIN_TEMP_DIFF, String::format("%4.1f", tempDiff));
 }
 #endif
 
