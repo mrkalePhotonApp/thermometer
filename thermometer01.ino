@@ -135,7 +135,8 @@ int thingspeakResult;
 #ifdef BLYNK_CLOUD
 const unsigned int PERIOD_PUBLISH_BLYNK = 30000;
 char BLYNK_TOKEN[] = CREDENTIALS_BLYNK_TOKEN;
-#define BLYNK_VPIN_BOOT_VALUE  V1
+#define BLYNK_VPIN_BOOTS       V1
+#define BLYNK_VPIN_RECONNECTS  V10
 #define BLYNK_VPIN_RSSI_VALUE  V2
 #define BLYNK_VPIN_TEMP_VALUE  V3
 #define BLYNK_VPIN_TEMP_GRAF   V11
@@ -145,7 +146,6 @@ char BLYNK_TOKEN[] = CREDENTIALS_BLYNK_TOKEN;
 #define BLYNK_VPIN_TEMP_RESET  V7
 #define BLYNK_VPIN_TEMP_LED1   V8
 #define BLYNK_VPIN_TEMP_LED2   V9
-#define BLYNK_VPIN_RECONNECTS  V10
 #if defined(BLYNK_SIGNAL_TEMP)
 WidgetLED ledTempInc(BLYNK_VPIN_TEMP_LED1);
 WidgetLED ledTempDec(BLYNK_VPIN_TEMP_LED2);
@@ -492,10 +492,10 @@ void publishBlynk()
 //-------------------------------------------------------------------------
 // Blynk reads
 //-------------------------------------------------------------------------
-#ifdef BLYNK_VPIN_BOOT_VALUE
-BLYNK_READ(BLYNK_VPIN_BOOT_VALUE)
+#ifdef BLYNK_VPIN_BOOTS
+BLYNK_READ(BLYNK_VPIN_BOOTS)
 {
-    Blynk.virtualWrite(BLYNK_VPIN_BOOT_VALUE, bootCount);
+    Blynk.virtualWrite(BLYNK_VPIN_BOOTS, bootCount);
 }
 #endif
 
