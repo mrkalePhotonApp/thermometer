@@ -13,8 +13,8 @@
   CREDENTIALS:
   Author: Libor Gabaj
 */
-// #define PARTICLE_CLOUD              // Comment to totally ignore Particle Cloud
-#define PHOTON_PUBLISH_DEBUG        // Uncomment to publish debug events to Particle Cloud
+#define PARTICLE_CLOUD              // Comment to totally ignore Particle Cloud
+// #define PHOTON_PUBLISH_DEBUG        // Uncomment to publish debug events to Particle Cloud
 #define PHOTON_PUBLISH_VALUE        // Uncomment to publish regular events to Particle Cloud
 
 #define THINGSPEAK_CLOUD            // Comment to totally ignore ThingSpeak Cloud
@@ -52,7 +52,7 @@ STARTUP(System.enableFeature(FEATURE_RETAINED_MEMORY));
 //-------------------------------------------------------------------------
 // Temperature sensing and publishing to Particle, ThinkSpeak, and Blynk
 //-------------------------------------------------------------------------
-#define SKETCH "THERMOMETER01 1.1.0"
+#define SKETCH "THERMOMETER01 1.2.0"
 #include "credentials.h"
 
 
@@ -108,9 +108,6 @@ retained float tempValueMin = 150.0, tempValueMax = -50.0;
 #ifdef PARTICLE_CLOUD
 const unsigned int PERIOD_PUBLISH_PARTICLE = 15000;
 const byte PARTICLE_BATCH_LIMIT = 4;    // Don't change it - platform dependent
-#define PARTICLE_VAR_BOOT   "boots"
-#define PARTICLE_VAR_RECON  "reconnects"
-#define PARTICLE_VAR_TEMP   "temperature"
 #endif
 
 
@@ -139,7 +136,6 @@ char BLYNK_TOKEN[] = CREDENTIALS_BLYNK_TOKEN;
 #define BLYNK_VPIN_RECONNECTS  V10
 #define BLYNK_VPIN_RSSI_VALUE  V2
 #define BLYNK_VPIN_TEMP_VALUE  V3
-#define BLYNK_VPIN_TEMP_GRAF   V11
 #define BLYNK_VPIN_TEMP_DIFF   V4
 #define BLYNK_VPIN_TEMP_MIN    V5
 #define BLYNK_VPIN_TEMP_MAX    V6
@@ -443,10 +439,6 @@ void publishBlynk()
 #ifdef BLYNK_VPIN_TEMP_VALUE
         // Pushing temperature value to the cloud for gauge
         Blynk.virtualWrite(BLYNK_VPIN_TEMP_VALUE, String::format("%4.1f", tempValue));
-#endif            
-#ifdef BLYNK_VPIN_TEMP_GRAF
-        // Pushing temperature value to the cloud for graph
-        Blynk.virtualWrite(BLYNK_VPIN_TEMP_GRAF, String::format("%4.1f", tempValue));
 #endif            
 #ifdef BLYNK_VPIN_TEMP_DIFF
         // Pushing temperature change to the cloud
