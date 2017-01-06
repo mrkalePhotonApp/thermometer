@@ -41,12 +41,12 @@
 //-------------------------------------------------------------------------
 // Boot setup
 //-------------------------------------------------------------------------
-// STARTUP(WiFi.selectAntenna(ANT_EXTERNAL));
-STARTUP(WiFi.selectAntenna(ANT_INTERNAL));
+STARTUP(WiFi.selectAntenna(ANT_EXTERNAL));
+// STARTUP(WiFi.selectAntenna(ANT_INTERNAL));
 STARTUP(System.enableFeature(FEATURE_RETAINED_MEMORY));
-// SYSTEM_THREAD(ENABLED);
+SYSTEM_THREAD(ENABLED);
 // SYSTEM_THREAD(DISABLED);
-// SYSTEM_MODE(AUTOMATIC);
+SYSTEM_MODE(AUTOMATIC);
 
 
 //-------------------------------------------------------------------------
@@ -60,30 +60,29 @@ STARTUP(System.enableFeature(FEATURE_RETAINED_MEMORY));
 // Hardware configuration
 //-------------------------------------------------------------------------
 const byte PIN_LM35 = A0;                       // Ambient temperature sensor LM35DZ
-const unsigned int REF_VOLTAGE = 3300;          // Reference voltage for analog reading in millivolts
-const float COEF_LM35 = 0.0805861;              // Centigrades per bit - Resolution 12bit, reference 3.3V, 10mV/degC
+const unsigned int REF_VOLTAGE = 3300;          // Reference voltage 3.3V
+const float COEF_LM35 = 0.0805861;              // Centigrades per bit
 
 
 //-------------------------------------------------------------------------
-// System configuration
+// Time periods (milliseconds)
 //-------------------------------------------------------------------------
-const unsigned int TIMEOUT_WATCHDOG = 10000;    // Watchdog timeout in milliseconds
-const unsigned int TIMEOUT_RECONNECT = 10000;   // Reconnection timeout in milliseconds
+const unsigned int TIMEOUT_WATCHDOG = 10000;
+const unsigned int TIMEOUT_RECONNECT = 10000;
+const unsigned int PERIOD_MEASURE_RSSI = 2000;
+const unsigned int PERIOD_MEASURE_TEMP = 2000;
 
 
 //-------------------------------------------------------------------------
 // Measuring configuration
 //-------------------------------------------------------------------------
-
-// Measurement periods in milliseconds
-const unsigned int PERIOD_MEASURE_RSSI = 2000;
-const unsigned int PERIOD_MEASURE_TEMP = 2000;
-
 // Temperature processing parameters (in centigrades)
 const float TEMP_VALUE_NAN = -999.0;    // Temperature not a number
 const float TEMP_VALUE_MARGIN = 0.5;    // Temperature hysteresis
-const float TEMP_BUCKET[] = {0.0, 5.0, 16.0, 20.0, 24.0, 28.0};
-const char* TEMP_STATUS[] = {"unknown", "Freeze", "Cold", "Lukewarm", "Normal", "Warm", "Hot"};
+// const float TEMP_BUCKET[] = {0.0, 5.0, 16.0, 20.0, 24.0, 28.0};
+// const char* TEMP_STATUS[] = {"unknown", "Freeze", "Cold", "Lukewarm", "Normal", "Warm", "Hot"};
+const float TEMP_BUCKET[] = {0.0, 4.0, 6.5, 8.5, 10.0}; // Bottom status values
+const char* TEMP_STATUS[] = {"unknown", "Freeze", "Cold", "Convectors", "Normal", "Lukewarm"};
 
 // Statistical smoothing and exponential filtering
 const float EXPFILTER_FACTOR_RSSI = 0.1;    // Filtering factor for RSSI
@@ -158,7 +157,7 @@ String BLYNK_LABEL_PREFIX = String("Chalupa");
 //-------------------------------------------------------------------------
 void setup()
 {
-    // Boot process
+    Watchdogs::begin(TIMEOUT_WATCHDOG);
     if (bootCount++ > 0) bootRunPeriod = max(0, Time.now() - bootTimeLast);
     bootTimeLast = Time.now();
 
@@ -170,9 +169,6 @@ void setup()
 #ifdef BLYNK_CLOUD
     Blynk.begin(BLYNK_TOKEN);
 #endif
-
-    // Start watchdogs
-    Watchdogs::begin(TIMEOUT_WATCHDOG);
 }
 
 
@@ -182,10 +178,10 @@ void setup()
 void loop()
 {
     Watchdogs::tickle();
+    watchConnection();
 #ifdef BLYNK_CLOUD
     Blynk.run();
 #endif
-    watchConnection();
     measure();
     publish();
 }
@@ -202,10 +198,10 @@ void measure()
 //-------------------------------------------------------------------------
 void watchConnection()
 {
-    static unsigned long tsMeasure;
-    if (millis() - tsMeasure >= TIMEOUT_RECONNECT)
+    static unsigned long timeStamp;
+    if (millis() - timeStamp >= TIMEOUT_RECONNECT)
     {
-        tsMeasure = millis();
+        timeStamp = millis();
         if (!Particle.connected())
         {
             reconnects++;
@@ -234,24 +230,24 @@ void publish()
 //-------------------------------------------------------------------------
 void measureRssi()
 {
-    static unsigned long tsMeasure;
-    if (millis() - tsMeasure >= PERIOD_MEASURE_RSSI || tsMeasure == 0)
+    static unsigned long timeStamp;
+    if (millis() - timeStamp >= PERIOD_MEASURE_RSSI || timeStamp == 0)
     {
-        tsMeasure = millis();
+        timeStamp = millis();
         int value = WiFi.RSSI();
         if (value < 0)
         {
-            rssiValue = efRssi.getValue(WiFi.RSSI());
+            rssiValue = efRssi.getValue(value);
         }
     }
 }
 
 void measureTemp()
 {
-    static unsigned long tsMeasure;
-    if (millis() - tsMeasure >= PERIOD_MEASURE_TEMP || tsMeasure == 0)
+    static unsigned long timeStamp;
+    if (millis() - timeStamp >= PERIOD_MEASURE_TEMP || timeStamp == 0)
     {
-        tsMeasure = millis();
+        timeStamp = millis();
         while(smooth.registerData(analogRead(PIN_LM35)));
         tempValue = efTemp.getValue(COEF_LM35 * smooth.getMidAverage());
         tempValueMin = fmin(tempValueMin, tempValue);
@@ -271,10 +267,10 @@ void measureTemp()
 #ifdef PARTICLE_CLOUD
 void publishParticle()
 {
-    static unsigned long tsPublish;
-    if (millis() - tsPublish >= PERIOD_PUBLISH_PARTICLE)
+    static unsigned long timeStamp;
+    if (millis() - timeStamp >= PERIOD_PUBLISH_PARTICLE)
     {
-        tsPublish = millis();
+        timeStamp = millis();
         byte batchMsgs = 0;
         batchMsgs = publishParticleInits(batchMsgs);     // Publish boot events
 #ifdef PHOTON_PUBLISH_VALUE
@@ -384,10 +380,10 @@ byte publishParticleValues(byte sentBatchMsgs)
 void publishThingspeak()
 {
     static float tempValueOld = TEMP_VALUE_NAN;
-    static unsigned long tsPublish;
-    if (millis() - tsPublish >= PERIOD_PUBLISH_THINGSPEAK)
+    static unsigned long timeStamp;
+    if (millis() - timeStamp >= PERIOD_PUBLISH_THINGSPEAK)
     {
-        tsPublish = millis();
+        timeStamp = millis();
         bool isField = false;
 
 #ifdef THINGSPEAK_FIELD_RSSI_VALUE
@@ -429,10 +425,10 @@ void publishBlynk()
     static byte tempStatusOld = tempStatus;
 #endif
     static float tempValueOld = tempValue;
-    static unsigned long tsPublish;
-    if (millis() - tsPublish >= PERIOD_PUBLISH_BLYNK)
+    static unsigned long timeStamp;
+    if (millis() - timeStamp >= PERIOD_PUBLISH_BLYNK)
     {
-        tsPublish = millis();
+        timeStamp = millis();
         float tempDiff = tempValue - tempValueOld;
         
         // Imidiate publishing
@@ -444,21 +440,8 @@ void publishBlynk()
         // Pushing temperature change to the cloud
         Blynk.virtualWrite(BLYNK_VPIN_TEMP_DIFF, String::format("%4.1f", tempDiff));
 #endif
-        
-        // Publishing only at relevant temperature change
-        if (fabs(tempDiff) > TEMP_VALUE_MARGIN)
-        {
-            // Temperature status push notification
-#ifdef BLYNK_NOTIFY_TEMP
-            if (tempStatus != tempStatusOld)
-            {
-                Blynk.notify(BLYNK_LABEL_PREFIX + BLYNK_LABEL_GLUE + String::format("%4.1f °C", tempValue) + BLYNK_LABEL_GLUE + TEMP_STATUS[tempStatus]);
-                tempStatusOld = tempStatus;
-            }
-#endif
-
-            // Temperature change signalling
 #ifdef BLYNK_SIGNAL_TEMP
+            // Temperature change signalling
             if (tempDiff > 0)
             {
                 ledTempInc.on();
@@ -475,8 +458,20 @@ void publishBlynk()
                 ledTempDec.off();
             }
 #endif
-            tempValueOld = tempValue;
+        
+        // Publishing only at relevant temperature change
+        if (fabs(tempDiff) > TEMP_VALUE_MARGIN)
+        {
+#ifdef BLYNK_NOTIFY_TEMP
+            // Temperature status push notification
+            if (tempStatus != tempStatusOld)
+            {
+                Blynk.notify(BLYNK_LABEL_PREFIX + BLYNK_LABEL_GLUE + String::format("%4.1f °C", tempValue) + BLYNK_LABEL_GLUE + TEMP_STATUS[tempStatus]);
+                tempStatusOld = tempStatus;
+            }
+#endif
         }
+        tempValueOld = tempValue;
     }
 #endif
 }
