@@ -74,6 +74,16 @@ const unsigned int PERIOD_MEASURE_TEMP = 1000;
 
 
 //-------------------------------------------------------------------------
+// Color definitions
+//-------------------------------------------------------------------------
+#define COLOR_BLYNK_RED       "#D3435C"
+#define COLOR_BLYNK_GREEN     "#23C48E"
+#define COLOR_BLYNK_BLUE      "#04C0F8"
+#define COLOR_BLYNK_YELLOW    "#ED9D00"
+#define COLOR_BLYNK_DARK_BLUE "#5F7CD8"
+
+
+//-------------------------------------------------------------------------
 // Measuring configuration
 //-------------------------------------------------------------------------
 // Temperature processing parameters (in centigrades)
@@ -83,7 +93,7 @@ const float TEMP_VALUE_MARGIN = 0.5;    // Temperature hysteresis
 // const char* TEMP_STATUS_NAME[] = {"unknown", "Freeze", "Cold", "Lukewarm", "Normal", "Warm", "Hot"};
 const float TEMP_BUCKET[] = {0.0, 4.0, 6.0, 8.0}; // Bottom status values
 const char* TEMP_STATUS_NAME[]  = {"unknown", "Freeze", "Cold", "Antifrost", "Lukewarm"};
-const char* TEMP_STATUS_COLOR[] = {"unknown", "#0099ff", "#99ffff", "#ff9999", "#ffff00"};
+const char* TEMP_STATUS_COLOR[] = {"unknown", COLOR_BLYNK_DARK_BLUE, COLOR_BLYNK_BLUE, COLOR_BLYNK_GREEN, COLOR_BLYNK_YELLOW};
 
 // Statistical smoothing and exponential filtering
 const float EXPFILTER_FACTOR_TEMP = 0.2;    // Filtering factor for temperature
@@ -159,6 +169,7 @@ WidgetLED ledTempDec(BLYNK_VPIN_LED_TEMP_DEC);
 String BLYNK_LABEL_GLUE = String(" -- ");
 String BLYNK_LABEL_PREFIX = String("Chalupa");
 #endif
+
 #endif
 
 
