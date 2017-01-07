@@ -41,8 +41,8 @@
 //-------------------------------------------------------------------------
 // Boot setup
 //-------------------------------------------------------------------------
-STARTUP(WiFi.selectAntenna(ANT_EXTERNAL));
-// STARTUP(WiFi.selectAntenna(ANT_INTERNAL));
+// STARTUP(WiFi.selectAntenna(ANT_EXTERNAL));
+STARTUP(WiFi.selectAntenna(ANT_INTERNAL));
 STARTUP(System.enableFeature(FEATURE_RETAINED_MEMORY));
 SYSTEM_THREAD(ENABLED);
 // SYSTEM_THREAD(DISABLED);
@@ -200,13 +200,19 @@ void loop()
 {
     Watchdogs::tickle();
     watchConnection();
+
 #ifdef BLYNK_CLOUD
     Blynk.run();
 #endif
+
     measure();
     publish();
 }
 
+
+//-------------------------------------------------------------------------
+// Measuring
+//-------------------------------------------------------------------------
 void measure()
 {
     measureRssi();
@@ -447,13 +453,13 @@ void publishBlynk()
     {
         timeStamp = millis();
         float tempDiff = tempValue - tempValueOld;
-        
+
 #ifdef BLYNK_VPIN_VALUE_TEMP
         // Pushing temperature value to the cloud for gauge
         Blynk.virtualWrite(BLYNK_VPIN_VALUE_TEMP, tempValue);
         Blynk.setProperty(BLYNK_VPIN_VALUE_TEMP, "label", String(TEMP_STATUS_NAME[tempStatus]));
         Blynk.setProperty(BLYNK_VPIN_VALUE_TEMP, "color", String(TEMP_STATUS_COLOR[tempStatus]));
-#endif            
+#endif
 
 #ifdef BLYNK_VPIN_VALUE_TEMP_DIFF
         // Pushing temperature change to the cloud
@@ -490,7 +496,7 @@ void publishBlynk()
 #endif
         }
 #endif
-        
+
         // Publishing only at relevant temperature change
         if (fabs(tempDiff) > TEMP_VALUE_MARGIN)
         {
@@ -556,6 +562,10 @@ BLYNK_WRITE(BLYNK_VPIN_BUTTON_RESET)
 }
 #endif
 
+
+//-------------------------------------------------------------------------
+// Blynk system status
+//-------------------------------------------------------------------------
 #ifdef BLYNK_VPIN_BUTTON_STATUS
 BLYNK_WRITE(BLYNK_VPIN_BUTTON_STATUS)
 {
@@ -572,12 +582,12 @@ BLYNK_WRITE(BLYNK_VPIN_BUTTON_STATUS)
                 lcdStatus.print(0, 0, String::format("SSID: %s", WiFi.SSID()));
                 lcdStatus.print(0, 1, String::format("Firmware: %s", System.version().c_str()));
                 break;
-            
+
             case 2:
                 lcdStatus.print(0, 0, String::format("Boots: %d", boots));
                 lcdStatus.print(0, 1, String::format("Reconnects: %d", reconnects));
                 break;
-            
+
             case 3:
                 {
                     String name = SKETCH;
@@ -585,7 +595,7 @@ BLYNK_WRITE(BLYNK_VPIN_BUTTON_STATUS)
                     lcdStatus.print(0, 1, String(name.substring(name.indexOf(' ') + 1)));
                 }
                 break;
-            
+
             default:
                 lcdMode = 0;
                 goto lcd;
