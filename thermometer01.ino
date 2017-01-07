@@ -20,7 +20,7 @@
 #define THINGSPEAK_CLOUD            // Comment to totally ignore ThingSpeak Cloud
 
 #define BLYNK_CLOUD                 // Comment to totally ignore Blynk Cloud
-#define BLYNK_NOTIFY_TEMP           // Uncomment to send Blynk push notifications
+// #define BLYNK_NOTIFY_TEMP           // Uncomment to send Blynk push notifications
 #define BLYNK_SIGNAL_TEMP           // Uncomment to use Blynk LED signalling
 
 // Libraries
@@ -52,7 +52,7 @@ SYSTEM_MODE(AUTOMATIC);
 //-------------------------------------------------------------------------
 // Temperature sensing and publishing to Particle, ThinkSpeak, and Blynk
 //-------------------------------------------------------------------------
-#define SKETCH "THERMOMETER01 1.2.0"
+#define SKETCH "THERMOMETER01 1.4.0"
 #include "credentials.h"
 
 
@@ -69,8 +69,8 @@ const float COEF_LM35 = 0.0805861;              // Centigrades per bit
 //-------------------------------------------------------------------------
 const unsigned int TIMEOUT_WATCHDOG = 10000;
 const unsigned int TIMEOUT_RECONNECT = 10000;
-const unsigned int PERIOD_MEASURE_RSSI = 2000;
-const unsigned int PERIOD_MEASURE_TEMP = 2000;
+const unsigned int PERIOD_MEASURE_RSSI = 1000;
+const unsigned int PERIOD_MEASURE_TEMP = 1000;
 
 
 //-------------------------------------------------------------------------
@@ -80,24 +80,23 @@ const unsigned int PERIOD_MEASURE_TEMP = 2000;
 const float TEMP_VALUE_NAN = -999.0;    // Temperature not a number
 const float TEMP_VALUE_MARGIN = 0.5;    // Temperature hysteresis
 // const float TEMP_BUCKET[] = {0.0, 5.0, 16.0, 20.0, 24.0, 28.0};
-// const char* TEMP_STATUS[] = {"unknown", "Freeze", "Cold", "Lukewarm", "Normal", "Warm", "Hot"};
-const float TEMP_BUCKET[] = {0.0, 4.0, 6.5, 8.5, 10.0}; // Bottom status values
-const char* TEMP_STATUS[] = {"unknown", "Freeze", "Cold", "Convectors", "Normal", "Lukewarm"};
+// const char* TEMP_STATUS_NAME[] = {"unknown", "Freeze", "Cold", "Lukewarm", "Normal", "Warm", "Hot"};
+const float TEMP_BUCKET[] = {0.0, 4.0, 6.0, 8.0}; // Bottom status values
+const char* TEMP_STATUS_NAME[]  = {"unknown", "Freeze", "Cold", "Antifrost", "Lukewarm"};
+const char* TEMP_STATUS_COLOR[] = {"unknown", "#0099ff", "#99ffff", "#ff9999", "#ffff00"};
 
 // Statistical smoothing and exponential filtering
-const float EXPFILTER_FACTOR_RSSI = 0.1;    // Filtering factor for RSSI
 const float EXPFILTER_FACTOR_TEMP = 0.2;    // Filtering factor for temperature
-ExponentialFilter efRssi = ExponentialFilter(EXPFILTER_FACTOR_RSSI);
 ExponentialFilter efTemp = ExponentialFilter(EXPFILTER_FACTOR_TEMP);
 SmoothSensorData smooth;
 
 // Measured values
 int rssiValue;
-float tempValue = TEMP_VALUE_NAN;
+float tempValue;
 byte tempStatus;
 
 // Backup variables (long term statistics)
-retained int bootCount, bootTimeLast, bootRunPeriod, reconnects;
+retained int boots, bootTimeLast, bootRunPeriod, reconnects;
 retained float tempValueMin = 150.0, tempValueMax = -50.0;
 
 
@@ -131,20 +130,31 @@ int thingspeakResult;
 #ifdef BLYNK_CLOUD
 const unsigned int PERIOD_PUBLISH_BLYNK = 30000;
 char BLYNK_TOKEN[] = CREDENTIALS_BLYNK_TOKEN;
-#define BLYNK_VPIN_BOOTS       V1
-#define BLYNK_VPIN_RECONNECTS  V10
-#define BLYNK_VPIN_RSSI_VALUE  V2
-#define BLYNK_VPIN_TEMP_VALUE  V3
-#define BLYNK_VPIN_TEMP_DIFF   V4
-#define BLYNK_VPIN_TEMP_MIN    V5
-#define BLYNK_VPIN_TEMP_MAX    V6
-#define BLYNK_VPIN_TEMP_RESET  V7
-#define BLYNK_VPIN_TEMP_LED1   V8
-#define BLYNK_VPIN_TEMP_LED2   V9
-#if defined(BLYNK_SIGNAL_TEMP)
-WidgetLED ledTempInc(BLYNK_VPIN_TEMP_LED1);
-WidgetLED ledTempDec(BLYNK_VPIN_TEMP_LED2);
+#define BLYNK_VPIN_LCD_STATUS           V0
+#define BLYNK_VPIN_BUTTON_STATUS        V1
+#define BLYNK_VPIN_BUTTON_RESET         V2
+#define BLYNK_VPIN_VALUE_RSSI           V3
+#define BLYNK_VPIN_VALUE_TEMP           V4
+#define BLYNK_VPIN_VALUE_TEMP_GAUGE     V4
+// #define BLYNK_VPIN_VALUE_TEMP_DIFF      V5
+#define BLYNK_VPIN_VALUE_TEMP_MIN       V6
+#define BLYNK_VPIN_VALUE_TEMP_MAX       V7
+#define BLYNK_VPIN_LED_TEMP_INC         V8
+#define BLYNK_VPIN_LED_TEMP_DEC         V9
+
+#ifdef BLYNK_VPIN_LCD_STATUS
+WidgetLCD lcdStatus(BLYNK_VPIN_LCD_STATUS);
 #endif
+
+#ifdef BLYNK_SIGNAL_TEMP
+#ifdef BLYNK_VPIN_LED_TEMP_INC
+WidgetLED ledTempInc(BLYNK_VPIN_LED_TEMP_INC);
+#endif
+#ifdef BLYNK_VPIN_LED_TEMP_DEC
+WidgetLED ledTempDec(BLYNK_VPIN_LED_TEMP_DEC);
+#endif
+#endif
+
 #if defined(BLYNK_NOTIFY_TEMP)
 String BLYNK_LABEL_GLUE = String(" -- ");
 String BLYNK_LABEL_PREFIX = String("Chalupa");
@@ -158,7 +168,7 @@ String BLYNK_LABEL_PREFIX = String("Chalupa");
 void setup()
 {
     Watchdogs::begin(TIMEOUT_WATCHDOG);
-    if (bootCount++ > 0) bootRunPeriod = max(0, Time.now() - bootTimeLast);
+    if (boots++ > 0) bootRunPeriod = max(0, Time.now() - bootTimeLast);
     bootTimeLast = Time.now();
 
     // Clouds
@@ -234,11 +244,7 @@ void measureRssi()
     if (millis() - timeStamp >= PERIOD_MEASURE_RSSI || timeStamp == 0)
     {
         timeStamp = millis();
-        int value = WiFi.RSSI();
-        if (value < 0)
-        {
-            rssiValue = efRssi.getValue(value);
-        }
+        rssiValue = WiFi.RSSI();
     }
 }
 
@@ -290,7 +296,7 @@ byte publishParticleInits(byte sentBatchMsgs)
         switch(sendMsgNo)
         {
             case 0:
-                publishSuccess = Particle.publish("Boot", String::format("%d/%d/%s", bootCount, bootRunPeriod, System.version().c_str()));
+                publishSuccess = Particle.publish("Boot", String::format("%d/%d/%s", boots, bootRunPeriod, System.version().c_str()));
                 break;
 
 #ifdef PHOTON_PUBLISH_DEBUG
@@ -342,7 +348,7 @@ byte publishParticleValues(byte sentBatchMsgs)
                 break;
 
             case 2:
-                publishSuccess = Particle.publish("Status", String(TEMP_STATUS[tempStatus]));
+                publishSuccess = Particle.publish("Status", String(TEMP_STATUS_NAME[tempStatus]));
                 break;
 
 #ifdef PHOTON_PUBLISH_DEBUG
@@ -431,32 +437,47 @@ void publishBlynk()
         timeStamp = millis();
         float tempDiff = tempValue - tempValueOld;
         
-        // Imidiate publishing
-#ifdef BLYNK_VPIN_TEMP_VALUE
+#ifdef BLYNK_VPIN_VALUE_TEMP
         // Pushing temperature value to the cloud for gauge
-        Blynk.virtualWrite(BLYNK_VPIN_TEMP_VALUE, String::format("%4.1f", tempValue));
+        Blynk.virtualWrite(BLYNK_VPIN_VALUE_TEMP, tempValue);
+        Blynk.setProperty(BLYNK_VPIN_VALUE_TEMP, "label", String(TEMP_STATUS_NAME[tempStatus]));
+        Blynk.setProperty(BLYNK_VPIN_VALUE_TEMP, "color", String(TEMP_STATUS_COLOR[tempStatus]));
 #endif            
-#ifdef BLYNK_VPIN_TEMP_DIFF
+
+#ifdef BLYNK_VPIN_VALUE_TEMP_DIFF
         // Pushing temperature change to the cloud
-        Blynk.virtualWrite(BLYNK_VPIN_TEMP_DIFF, String::format("%4.1f", tempDiff));
+        Blynk.virtualWrite(BLYNK_VPIN_VALUE_TEMP_DIFF, String::format("%4.1f", tempDiff));
 #endif
+
 #ifdef BLYNK_SIGNAL_TEMP
-            // Temperature change signalling
-            if (tempDiff > 0)
-            {
-                ledTempInc.on();
-                ledTempDec.off();
-            }
-            else if (tempDiff < 0)
-            {
-                ledTempInc.off();
-                ledTempDec.on();
-            }
-            else
-            {
-                ledTempInc.off();
-                ledTempDec.off();
-            }
+        // Temperature change signalling
+        if (tempDiff > 0)
+        {
+#ifdef BLYNK_VPIN_LED_TEMP_INC
+            ledTempInc.on();
+#endif
+#ifdef BLYNK_VPIN_LED_TEMP_INC
+            ledTempDec.off();
+#endif
+        }
+        else if (tempDiff < 0)
+        {
+#ifdef BLYNK_VPIN_LED_TEMP_INC
+            ledTempInc.off();
+#endif
+#ifdef BLYNK_VPIN_LED_TEMP_INC
+            ledTempDec.on();
+#endif
+        }
+        else
+        {
+#ifdef BLYNK_VPIN_LED_TEMP_INC
+            ledTempInc.off();
+#endif
+#ifdef BLYNK_VPIN_LED_TEMP_INC
+            ledTempDec.off();
+#endif
+        }
 #endif
         
         // Publishing only at relevant temperature change
@@ -466,7 +487,7 @@ void publishBlynk()
             // Temperature status push notification
             if (tempStatus != tempStatusOld)
             {
-                Blynk.notify(BLYNK_LABEL_PREFIX + BLYNK_LABEL_GLUE + String::format("%4.1f °C", tempValue) + BLYNK_LABEL_GLUE + TEMP_STATUS[tempStatus]);
+                Blynk.notify(BLYNK_LABEL_PREFIX + BLYNK_LABEL_GLUE + String::format("%4.1f °C", tempValue) + BLYNK_LABEL_GLUE + TEMP_STATUS_NAME[tempStatus]);
                 tempStatusOld = tempStatus;
             }
 #endif
@@ -479,50 +500,87 @@ void publishBlynk()
 //-------------------------------------------------------------------------
 // Blynk reads
 //-------------------------------------------------------------------------
-#ifdef BLYNK_VPIN_BOOTS
-BLYNK_READ(BLYNK_VPIN_BOOTS)
+#ifdef BLYNK_VPIN_VALUE_RSSI
+BLYNK_READ(BLYNK_VPIN_VALUE_RSSI)
 {
-    Blynk.virtualWrite(BLYNK_VPIN_BOOTS, bootCount);
+    Blynk.virtualWrite(BLYNK_VPIN_VALUE_RSSI, rssiValue);
 }
 #endif
 
-#ifdef BLYNK_VPIN_RSSI_VALUE
-BLYNK_READ(BLYNK_VPIN_RSSI_VALUE)
+#ifdef BLYNK_VPIN_VALUE_TEMP_MIN
+BLYNK_READ(BLYNK_VPIN_VALUE_TEMP_MIN)
 {
-    Blynk.virtualWrite(BLYNK_VPIN_RSSI_VALUE, rssiValue);
+    Blynk.virtualWrite(BLYNK_VPIN_VALUE_TEMP_MIN, String::format("%4.1f", tempValueMin));
 }
 #endif
 
-#ifdef BLYNK_VPIN_TEMP_MIN
-BLYNK_READ(BLYNK_VPIN_TEMP_MIN)
+#ifdef BLYNK_VPIN_VALUE_TEMP_MAX
+BLYNK_READ(BLYNK_VPIN_VALUE_TEMP_MAX)
 {
-    Blynk.virtualWrite(BLYNK_VPIN_TEMP_MIN, String::format("%4.1f", tempValueMin));
+    Blynk.virtualWrite(BLYNK_VPIN_VALUE_TEMP_MAX, String::format("%4.1f", tempValueMax));
 }
 #endif
 
-#ifdef BLYNK_VPIN_TEMP_MAX
-BLYNK_READ(BLYNK_VPIN_TEMP_MAX)
+#ifdef BLYNK_VPIN_VALUE_TEMP_GAUGE
+BLYNK_READ(BLYNK_VPIN_VALUE_TEMP_GAUGE)
 {
-    Blynk.virtualWrite(BLYNK_VPIN_TEMP_MAX, String::format("%4.1f", tempValueMax));
+    Blynk.virtualWrite(BLYNK_VPIN_VALUE_TEMP_GAUGE, tempValue);
+    Blynk.setProperty(BLYNK_VPIN_VALUE_TEMP_GAUGE, "label", String(TEMP_STATUS_NAME[tempStatus]));
+    Blynk.setProperty(BLYNK_VPIN_VALUE_TEMP, "color", String(TEMP_STATUS_COLOR[tempStatus]));
 }
 #endif
 
-#ifdef BLYNK_VPIN_RECONNECTS
-BLYNK_READ(BLYNK_VPIN_RECONNECTS)
-{
-    Blynk.virtualWrite(BLYNK_VPIN_RECONNECTS, reconnects);
-}
-#endif
 
 //-------------------------------------------------------------------------
 // Blynk actions
 //-------------------------------------------------------------------------
-#ifdef BLYNK_VPIN_TEMP_RESET
-BLYNK_WRITE(BLYNK_VPIN_TEMP_RESET)
+#ifdef BLYNK_VPIN_BUTTON_RESET
+BLYNK_WRITE(BLYNK_VPIN_BUTTON_RESET)
 {
     if (param.asInt() == HIGH)
     {
         tempValueMin = tempValueMax = tempValue;
+        reconnects = 0;
+    }
+}
+#endif
+
+#ifdef BLYNK_VPIN_BUTTON_STATUS
+BLYNK_WRITE(BLYNK_VPIN_BUTTON_STATUS)
+{
+    static byte lcdMode;
+    if (param.asInt() == HIGH)
+    {
+#ifdef BLYNK_VPIN_LCD_STATUS
+        lcd:
+        lcdMode++;
+        lcdStatus.clear();
+        switch (lcdMode)
+        {
+            case 1:
+                lcdStatus.print(0, 0, String::format("SSID: %s", WiFi.SSID()));
+                lcdStatus.print(0, 1, String::format("Firmware: %s", System.version().c_str()));
+                break;
+            
+            case 2:
+                lcdStatus.print(0, 0, String::format("Boots: %d", boots));
+                lcdStatus.print(0, 1, String::format("Reconnects: %d", reconnects));
+                break;
+            
+            case 3:
+                {
+                    String name = SKETCH;
+                    lcdStatus.print(0, 0, String(name.substring(0, name.indexOf(' '))));
+                    lcdStatus.print(0, 1, String(name.substring(name.indexOf(' ') + 1)));
+                }
+                break;
+            
+            default:
+                lcdMode = 0;
+                goto lcd;
+                break;
+        }
+#endif
     }
 }
 #endif

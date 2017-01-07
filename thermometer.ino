@@ -253,7 +253,7 @@ void measureRssi()
         int value = WiFi.RSSI();
         if (value < 0)
         {
-            rssiValue = efRssi.getValue(WiFi.RSSI());
+            rssiValue = efRssi.getValue(value);
         }
     }
 }
