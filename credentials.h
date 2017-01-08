@@ -20,4 +20,8 @@
 // Blynk
 #define CREDENTIALS_BLYNK_TOKEN "MyToken"
 
+// MQTT
+#define CREDENTIALS_MQTT_USER "MyUser"
+#define CREDENTIALS_MQTT_PASSWORD "MyPassword"
+
 #endif
